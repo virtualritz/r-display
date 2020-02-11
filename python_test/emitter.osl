@@ -1,0 +1,7 @@
+/* Trivial emitter for demo purposes. */
+surface emitter(
+        float power = 1 )
+{
+        Ci = power / (M_PI * surfacearea()) * emission();
+}
+
