@@ -10,7 +10,7 @@ fn main() {
     let delight =
         &env::var("DELIGHT").expect("DELIGHT environment variable not set – cannot find 3Delight.");
 
-    // Emit linker searchpath
+    // Emit linker searchpath - NO LINKING NEEDED FOR DISPLAY DRIVERS
     /*
     println!(
         "cargo:rustc-link-search={}",
@@ -19,9 +19,15 @@ fn main() {
     println!("cargo:rustc-link-lib=3delight");
     */
 
+    // Tell cargo to invalidate the built crate whenever the wrapper changes
+    println!("cargo:rerun-if-changed=wrapper.h");
+
     // Build bindings
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
+        // Tell cargo to invalidate the built crate whenever any of the
+        // included header files changed.
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         // Searchpath
         .clang_arg(format!(
             "-I{}",

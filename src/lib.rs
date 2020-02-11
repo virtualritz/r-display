@@ -18,61 +18,114 @@ use exr::prelude::*;
 */
 
 use std::ffi::{c_void, CStr};
-use std::str;
+use std::{fs, io, mem, os, ptr, str};
 
 #[repr(C)]
 #[derive(Debug)]
 struct ImageData {
     data: Vec<u8>,
-    offset: usize,
+    offset: isize,
     width: u32,
     height: u32,
     file_name: String,
 }
 
-fn get_parameter(
+/// A utility function to get user parameters.
+///
+/// The template argument is the expected type of the resp. parameter.
+///
+/// # Arguments
+///
+/// * `name` - A string slice that holds the name of the parameter we
+///            are searching for
+/// * `parameter_count` - Number of parameters
+/// * `parameter`       - Array of `ndspy_sys::UserParameter` structs to
+///                       search
+///
+/// # Example
+///
+/// ```
+/// let associate_alpha =
+///     1 == get_parameter::<i32>("associatealpha", _parameter_count, _parameter).unwrap_or(0);
+/// ```
+pub fn get_parameter<T: Copy>(
     name: &str,
-    parameter_count: std::os::raw::c_int,
+    parameter_count: os::raw::c_int,
     parameter: *const ndspy_sys::UserParameter,
-) -> *const c_void {
+) -> Option<T> {
     for i in 0..parameter_count {
         if name
-            == unsafe {
-                CStr::from_ptr((*parameter.offset(i as isize)).name)
-                    .to_str()
-                    .unwrap()
-            }
+            == unsafe { CStr::from_ptr((*parameter.offset(i as isize)).name) }
+                .to_str()
+                .unwrap()
         {
-            return unsafe { (*parameter.offset(i as isize)).value };
+            let value_ptr = (unsafe { *(parameter.offset(i as isize)) }).value as *const T;
+
+            assert!(value_ptr != ptr::null());
+
+            return Some(unsafe { *value_ptr });
         }
     }
 
-    std::ptr::null()
+    None
 }
 
 #[no_mangle]
 pub extern "C" fn DspyImageOpen(
-    mut image_handle_ptr: *mut ndspy_sys::PtDspyImageHandle,
-    _driver_name: *const std::os::raw::c_char,
-    output_filename: *const std::os::raw::c_char,
-    width: std::os::raw::c_int,
-    height: std::os::raw::c_int,
-    _parameter_count: std::os::raw::c_int,
+    image_handle_ptr: *mut ndspy_sys::PtDspyImageHandle,
+    _driver_name: *const os::raw::c_char,
+    output_filename: *const os::raw::c_char,
+    width: os::raw::c_int,
+    height: os::raw::c_int,
+    _parameter_count: os::raw::c_int,
     _parameter: *const ndspy_sys::UserParameter,
-    _num_formats: std::os::raw::c_int,
-    _formats: *const ndspy_sys::PtDspyDevFormat,
+    format_count: os::raw::c_int,
+    format: *const ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
 ) -> ndspy_sys::PtDspyError {
     println!("DspyImageOpen()");
 
-    println!("Handle received by the renderer: {:?}", image_handle_ptr,);
+    println!("Handle received from the renderer: {:?}", image_handle_ptr,);
 
-    println!("File name:                       {}", unsafe {
+    println!("File name:                         {}", unsafe {
         CStr::from_ptr(output_filename).to_str().unwrap()
     });
 
-    if (image_handle_ptr == std::ptr::null_mut()) || (output_filename == std::ptr::null_mut()) {
+    if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
+    }
+
+    let associate_alpha =
+        1 == get_parameter::<i32>("associatealpha", _parameter_count, _parameter).unwrap_or(0);
+
+    let mut active_format = (unsafe { *format.offset(0) }).type_ & ndspy_sys::PkDspyMaskType;
+    let mut bits: u8 = 8;
+    let mut white_value: f32 = 255.0;
+    let mut is_float = false;
+
+    match active_format {
+        ndspy_sys::PkDspyFloat16 => {
+            bits = 16;
+            white_value = 1.0;
+            is_float = true;
+        }
+        ndspy_sys::PkDspyFloat32 => {
+            bits = 32;
+            white_value = 1.0;
+            is_float = true;
+        }
+        ndspy_sys::PkDspyUnsigned16 => {
+            bits = 16;
+            white_value = 65535.0;
+        }
+        _ => {
+            active_format = ndspy_sys::PkDspyUnsigned8;
+        }
+    }
+
+    // Ensure all channels have the same format.
+    for i in 0..format_count {
+        (unsafe { *format.offset(0) }).type_ = active_format;
     }
 
     let image = Box::new(ImageData {
@@ -93,13 +146,17 @@ pub extern "C" fn DspyImageOpen(
         },
     });
 
-    //println!("Contents of ImageData struct:    {:?}", *image);
+    //println!("Contents of ImageData struct:      {:?}", *image);
 
     // Get raw pointer to heap-allocated ImageData struct and pass
     // ownership to image_handle_ptr.
-    image_handle_ptr = Box::into_raw(image) as *mut _;
+    unsafe {
+        *image_handle_ptr = Box::into_raw(image) as *mut _;
+    }
 
-    println!("Handle returned to renderer:     {:?}", image_handle_ptr);
+    println!("Handle returned to renderer:       {:?}", unsafe {
+        *image_handle_ptr
+    });
 
     // We're dereferencing a raw pointer – this is obviously unsafe
     unsafe {
@@ -113,12 +170,12 @@ pub extern "C" fn DspyImageOpen(
 pub extern "C" fn DspyImageQuery(
     image_handle: ndspy_sys::PtDspyImageHandle,
     query_type: ndspy_sys::PtDspyQueryType,
-    data_len: std::os::raw::c_int,
-    mut data: *mut std::os::raw::c_void,
+    data_len: os::raw::c_int,
+    mut data: *mut os::raw::c_void,
 ) -> ndspy_sys::PtDspyError {
     println!("DspyImageQuery()");
 
-    if (data == std::ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
+    if (data == ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
@@ -130,7 +187,7 @@ pub extern "C" fn DspyImageQuery(
             println!("PkSizeQuery");
             let size_info = Box::new({
                 println!("no size – using default");
-                if image_handle == std::ptr::null_mut() {
+                if image_handle == ptr::null_mut() {
                     ndspy_sys::PtDspySizeInfo {
                         width: 1920,
                         height: 1080,
@@ -149,7 +206,7 @@ pub extern "C" fn DspyImageQuery(
                 }
             });
 
-            assert!(std::mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
+            assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
 
             // Transfer ownership of the size_query heap object to the
             // data pointer.
@@ -178,34 +235,46 @@ pub extern "C" fn DspyImageQuery(
 
 #[no_mangle]
 pub extern "C" fn DspyImageData(
-    image_handle: *mut ndspy_sys::PtDspyImageHandle,
-    x_min: std::os::raw::c_int,
-    x_max_plus_one: std::os::raw::c_int,
-    y_min: std::os::raw::c_int,
-    y_max_plus_one: std::os::raw::c_int,
-    entry_size: std::os::raw::c_int,
-    data: *const std::os::raw::c_uchar,
+    image_handle: ndspy_sys::PtDspyImageHandle,
+    x_min: os::raw::c_int,
+    x_max_plus_one: os::raw::c_int,
+    y_min: os::raw::c_int,
+    y_max_plus_one: os::raw::c_int,
+    entry_size: os::raw::c_int,
+    data: *const os::raw::c_uchar,
 ) -> ndspy_sys::PtDspyError {
     println!("DspyImageData()");
 
     let mut image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
-    if image_handle == std::ptr::null_mut() {
+    println!("Handle received from the renderer: {:?}", image_handle);
+
+    if image_handle == ptr::null_mut() {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
+    println!("Contents of ImageData struct:      {:?}", image);
+
     let data_size = (entry_size * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
 
+    println!("Data size to copy:                 {}", data_size);
+    println!("Offset:                            {}", image.offset);
+    println!("Entry size:                        {}", entry_size);
+
     unsafe {
-        std::ptr::copy_nonoverlapping(data, &mut image.data[image.offset], data_size);
+        ptr::copy_nonoverlapping(
+            data,
+            image.data.as_mut_ptr().offset(image.offset),
+            data_size,
+        );
     }
 
-    image.offset += data_size;
+    image.offset += data_size as isize;
 
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
-fn write_image(image: Box<ImageData>) -> Result<std::fs::File, std::io::Error> {
+fn write_image(image: Box<ImageData>) -> Result<fs::File, io::Error> {
     TiffFile::new(
         Ifd::new()
             .with_entry(tags::PhotometricInterpretation, SHORT![1]) // Black is zero
@@ -228,7 +297,7 @@ fn write_image(image: Box<ImageData>) -> Result<std::fs::File, std::io::Error> {
 
 #[no_mangle]
 pub extern "C" fn DspyImageClose(
-    image_handle: *mut ndspy_sys::PtDspyImageHandle,
+    image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
     println!("DspyImageClose()");
 
@@ -237,7 +306,7 @@ pub extern "C" fn DspyImageClose(
 
 #[no_mangle]
 pub extern "C" fn DspyImageDelayClose(
-    image_handle: *mut ndspy_sys::PtDspyImageHandle,
+    image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
     println!("DspyImageDelayClose()");
 
@@ -249,6 +318,8 @@ pub extern "C" fn DspyImageDelayClose(
             .raw_os_error()
             .unwrap_or(ndspy_sys::PtDspyError_PkDspyErrorUndefined as i32) as u32,
     }
+
+    // image goes out of scope – this will free the memory
 }
 
 #[cfg(test)]
