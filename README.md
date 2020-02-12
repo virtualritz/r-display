@@ -1,6 +1,6 @@
 # r-display
 
-Minimal [NSI](https://nsi.readthedocs.io/)/RenderMan display driver template written in Rust.
+Minimal [NSI](https://nsi.readthedocs.io/)/RenderMan 8bit PNG display driver template written in Rust.
 
 The build only works with [3Delight](https://www.3delight.com/) out of the box. Build instructions should work for **Linux** and **macOS**. On **Windows** your mileage my vary.
 
