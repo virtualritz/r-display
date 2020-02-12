@@ -79,7 +79,7 @@ pub extern "C" fn DspyImageOpen(
     parameter_count: os::raw::c_int,
     parameter: *const ndspy_sys::UserParameter,
     format_count: os::raw::c_int,
-    format: *const ndspy_sys::PtDspyDevFormat,
+    mut format: *mut ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
 ) -> ndspy_sys::PtDspyError {
     if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
@@ -90,7 +90,7 @@ pub extern "C" fn DspyImageOpen(
     let _associate_alpha =
         1 == get_parameter::<i32>("associatealpha", parameter_count, parameter).unwrap_or(0);
 
-    // Ensure all channels are sent to us as 16bit integers.
+    // Ensure all channels are sent to us as 8bit integers.
     // This loops through each format (channel), r, g, b, a etc.
     for i in 0..format_count as isize {
         (unsafe { *format.offset(i) }).type_ = ndspy_sys::PkDspyUnsigned8;
@@ -136,8 +136,6 @@ pub extern "C" fn DspyImageQuery(
     data_len: os::raw::c_int,
     mut data: *mut os::raw::c_void,
 ) -> ndspy_sys::PtDspyError {
-    println!("DspyImageQuery()");
-
     if (data == ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
@@ -147,9 +145,7 @@ pub extern "C" fn DspyImageQuery(
     // But we leave this code be – just in case. :]
     match query_type {
         ndspy_sys::PtDspyQueryType_PkSizeQuery => {
-            println!("PkSizeQuery");
             let size_info = Box::new({
-                println!("no size – using default");
                 if image_handle == ptr::null_mut() {
                     ndspy_sys::PtDspySizeInfo {
                         width: 1920,
@@ -157,8 +153,6 @@ pub extern "C" fn DspyImageQuery(
                         aspectRatio: 1.0,
                     }
                 } else {
-                    println!("using size from exisiting image");
-
                     let image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
                     ndspy_sys::PtDspySizeInfo {
@@ -177,8 +171,6 @@ pub extern "C" fn DspyImageQuery(
         }
 
         ndspy_sys::PtDspyQueryType_PkOverwriteQuery => {
-            println!("PkOverwriteQuery");
-
             let overwrite_info = Box::new(ndspy_sys::PtDspyOverwriteInfo {
                 overwrite: true as ndspy_sys::PtDspyUnsigned8,
                 unused: 0,
@@ -188,7 +180,6 @@ pub extern "C" fn DspyImageQuery(
         }
 
         _ => {
-            println!("Query: {:?}", query_type);
             return ndspy_sys::PtDspyError_PkDspyErrorUnsupported;
         }
     }
