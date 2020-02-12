@@ -14,7 +14,8 @@ use exr::prelude::*;
 */
 
 use std::ffi::CStr;
-use std::{fs, io, mem, os, path, ptr, slice, str};
+use std::os::raw::{c_char, c_int, c_uchar, c_void};
+use std::{fs, io, mem, path, ptr, slice};
 
 use png;
 
@@ -49,7 +50,7 @@ struct ImageData {
 /// ```
 pub fn get_parameter<T: Copy>(
     name: &str,
-    parameter_count: os::raw::c_int,
+    parameter_count: c_int,
     parameter: *const ndspy_sys::UserParameter,
 ) -> Option<T> {
     for i in 0..parameter_count {
@@ -72,14 +73,14 @@ pub fn get_parameter<T: Copy>(
 #[no_mangle]
 pub extern "C" fn DspyImageOpen(
     image_handle_ptr: *mut ndspy_sys::PtDspyImageHandle,
-    _driver_name: *const os::raw::c_char,
-    output_filename: *const os::raw::c_char,
-    width: os::raw::c_int,
-    height: os::raw::c_int,
-    parameter_count: os::raw::c_int,
+    _driver_name: *const c_char,
+    output_filename: *const c_char,
+    width: c_int,
+    height: c_int,
+    parameter_count: c_int,
     parameter: *const ndspy_sys::UserParameter,
-    format_count: os::raw::c_int,
-    mut format: *mut ndspy_sys::PtDspyDevFormat,
+    format_count: c_int,
+    format: *mut ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
 ) -> ndspy_sys::PtDspyError {
     if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
@@ -133,8 +134,8 @@ pub extern "C" fn DspyImageOpen(
 pub extern "C" fn DspyImageQuery(
     image_handle: ndspy_sys::PtDspyImageHandle,
     query_type: ndspy_sys::PtDspyQueryType,
-    data_len: os::raw::c_int,
-    mut data: *mut os::raw::c_void,
+    data_len: c_int,
+    mut data: *mut c_void,
 ) -> ndspy_sys::PtDspyError {
     if (data == ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
@@ -190,12 +191,12 @@ pub extern "C" fn DspyImageQuery(
 #[no_mangle]
 pub extern "C" fn DspyImageData(
     image_handle: ndspy_sys::PtDspyImageHandle,
-    x_min: os::raw::c_int,
-    x_max_plus_one: os::raw::c_int,
-    y_min: os::raw::c_int,
-    y_max_plus_one: os::raw::c_int,
-    _entry_size: os::raw::c_int,
-    data: *const os::raw::c_uchar,
+    x_min: c_int,
+    x_max_plus_one: c_int,
+    y_min: c_int,
+    y_max_plus_one: c_int,
+    _entry_size: c_int,
+    data: *const c_uchar,
 ) -> ndspy_sys::PtDspyError {
     let mut image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
