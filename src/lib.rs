@@ -99,7 +99,7 @@ pub extern "C" fn DspyImageOpen(
         // block or else we’d get a copy and the value of type_
         // remained unchanged! See:
         // https://bluss.github.io/rust/fun/2015/10/11/stuff-the-identity-function-does/
-        (unsafe { &mut *format.offset(i) }).type_ = ndspy_sys::PkDspyUnsigned8;
+        unsafe { &mut *format.offset(i) }.type_ = ndspy_sys::PkDspyUnsigned8;
 
         // Shorter version but has more code being unneccessarily
         // inside the unsafe{} block:
