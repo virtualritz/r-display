@@ -11,3 +11,7 @@ crate-type = ["dylib"]
 [dependencies]
 ndspy-sys = { path = "ndspy-sys" }
 png = ">=0.15.3"
+
+[profile.release]
+lto = true
+codegen-units = 1

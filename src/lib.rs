@@ -233,7 +233,22 @@ pub extern "C" fn DspyImageData(
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
-fn write_image(image: Box<ImageData>) -> Result<(), png::EncodingError> {
+fn disassociate_alpha(image: &mut Box<ImageData>) -> &mut Box<ImageData> {
+    for i in (0..image.data.len()).step_by(4) {
+        let alpha = image.data[i + 3];
+        if alpha != 0 {
+            //let alpha_float = alpha as f32 / 255.0;
+            for c in i..i + 3 {
+                let channel = image.data[c] as u32;
+                image.data[c] = (((channel << 8) - channel) / alpha as u32) as u8;
+            }
+        }
+    }
+
+    image
+}
+
+fn write_image(image: &Box<ImageData>) -> Result<(), png::EncodingError> {
     let path = path::Path::new(&image.file_name);
     let file = fs::File::create(path).unwrap();
     let ref mut writer = io::BufWriter::new(file);
@@ -259,9 +274,11 @@ pub extern "C" fn DspyImageClose(
 pub extern "C" fn DspyImageDelayClose(
     image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
-    let image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
+    let mut image = unsafe { &mut Box::from_raw(image_handle as *mut ImageData) };
 
-    match write_image(image) {
+    image = disassociate_alpha(image);
+
+    match write_image(&image) {
         Ok(_) => ndspy_sys::PtDspyError_PkDspyErrorNone,
         Err(_) => ndspy_sys::PtDspyError_PkDspyErrorUndefined,
     }

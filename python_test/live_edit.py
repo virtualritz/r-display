@@ -39,7 +39,7 @@ c.SetAttribute('s1',
 
 # Setup an output layer.
 c.Create('beauty', 'outputlayer')
-c.SetAttribute('beauty', variablename='Ci', withalpha=1, scalarformat='uint8')
+c.SetAttribute('beauty', variablename='Ci', withalpha=1, scalarformat='uint16')
 c.Connect('beauty', '', 's1', 'outputlayers')
 
 '''
