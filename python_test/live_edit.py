@@ -34,7 +34,7 @@ c.Connect('cam1', '', 'cam1_trs', 'objects')
 c.Create('s1', 'screen')
 c.Connect('s1', '', 'cam1', 'screens')
 c.SetAttribute('s1',
-               resolution=nsi.Arg((16, 9), arraylength=2),
+               resolution=nsi.Arg((640, 480), arraylength=2),
                oversampling=16)
 
 # Setup an output layer.
@@ -146,16 +146,19 @@ c.Connect('wave_shader', 'outColor', 'shader1', 'Cs')
 c.RenderControl(action='synchronize')
 time.sleep(5)
 
+'''
 # Recursively delete the shader network.
 c.Delete('shader1', recursive=1)
 # Replace by something else. Note that we only connect it to plane_attribs so
 # it will not apply to the small triangle creating the shadow, which no longer
 # has any shader. It will render black but still be visible in the alpha
 # channel.
+
 c.Create('shader2', 'shader')
-c.SetAttribute('shader2', shaderfilename='matte', Cs=nsi.ColorArg(1, 0.2, 0.2))
+c.SetAttribute('shader2', shaderfilename='matte', Cs=nsi.ColorArg(1, 0.5, 0.2))
 c.Connect('shader2', '', 'plane_attribs', 'surfaceshader')
 
+'''
 # Apply changes and let render a while.
 c.RenderControl(action='synchronize')
 time.sleep(5)
@@ -169,7 +172,16 @@ c.Create('driver2', 'outputdriver')
 c.Connect('driver2', '', 'beauty', 'outputdrivers')
 c.SetAttribute('driver2',
                drivername='rdisplay',
+               imagefilename='test_output.png')
+
+
+# Add a second output driver to produce an exr image.
+c.Create('driver3', 'outputdriver')
+c.Connect('driver3', '', 'beauty', 'outputdrivers')
+c.SetAttribute('driver3',
+               drivername='tiff',
                imagefilename='test_output.tif')
+
 
 # Add a second layer to that exr image. It's a debug AOV from the sample matte
 # shader. See matte.osl.

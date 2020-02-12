@@ -1,10 +1,6 @@
-use ndspy_sys;
+#![allow(unused_assignments)]
 
-// Output TIFF for now.
-#[macro_use]
-extern crate tiff_encoder;
-use tiff_encoder::ifd::tags;
-use tiff_encoder::prelude::*;
+use ndspy_sys;
 
 // We output EXR instead once the Rust native EXR crate hits its first
 // release. Building the (working) Rust C++ OpenEXR bindings involves
@@ -17,8 +13,10 @@ use tiff_encoder::prelude::*;
 use exr::prelude::*;
 */
 
-use std::ffi::{c_void, CStr};
-use std::{fs, io, mem, os, ptr, str};
+use std::ffi::CStr;
+use std::{fs, io, mem, os, path, ptr, slice, str};
+
+use png;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -27,6 +25,7 @@ struct ImageData {
     offset: isize,
     width: u32,
     height: u32,
+    channels: u32,
     file_name: String,
 }
 
@@ -77,55 +76,24 @@ pub extern "C" fn DspyImageOpen(
     output_filename: *const os::raw::c_char,
     width: os::raw::c_int,
     height: os::raw::c_int,
-    _parameter_count: os::raw::c_int,
-    _parameter: *const ndspy_sys::UserParameter,
+    parameter_count: os::raw::c_int,
+    parameter: *const ndspy_sys::UserParameter,
     format_count: os::raw::c_int,
     format: *const ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
 ) -> ndspy_sys::PtDspyError {
-    println!("DspyImageOpen()");
-
-    println!("Handle received from the renderer: {:?}", image_handle_ptr,);
-
-    println!("File name:                         {}", unsafe {
-        CStr::from_ptr(output_filename).to_str().unwrap()
-    });
-
     if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
-    let associate_alpha =
-        1 == get_parameter::<i32>("associatealpha", _parameter_count, _parameter).unwrap_or(0);
+    // Example use of get_parameter() helper.
+    let _associate_alpha =
+        1 == get_parameter::<i32>("associatealpha", parameter_count, parameter).unwrap_or(0);
 
-    let mut active_format = (unsafe { *format.offset(0) }).type_ & ndspy_sys::PkDspyMaskType;
-    let mut bits: u8 = 8;
-    let mut white_value: f32 = 255.0;
-    let mut is_float = false;
-
-    match active_format {
-        ndspy_sys::PkDspyFloat16 => {
-            bits = 16;
-            white_value = 1.0;
-            is_float = true;
-        }
-        ndspy_sys::PkDspyFloat32 => {
-            bits = 32;
-            white_value = 1.0;
-            is_float = true;
-        }
-        ndspy_sys::PkDspyUnsigned16 => {
-            bits = 16;
-            white_value = 65535.0;
-        }
-        _ => {
-            active_format = ndspy_sys::PkDspyUnsigned8;
-        }
-    }
-
-    // Ensure all channels have the same format.
-    for i in 0..format_count {
-        (unsafe { *format.offset(0) }).type_ = active_format;
+    // Ensure all channels are sent to us as 16bit integers.
+    // This loops through each format (channel), r, g, b, a etc.
+    for i in 0..format_count as isize {
+        (unsafe { *format.offset(i) }).type_ = ndspy_sys::PkDspyUnsigned8;
     }
 
     let image = Box::new(ImageData {
@@ -134,10 +102,11 @@ pub extern "C" fn DspyImageOpen(
         // bad because it "exposes uninitialized memory to be read and
         // dropped on panic".
         // See https://github.com/rust-lang/rust-clippy/issues/4483
-        data: vec![0; (width * height) as usize],
+        data: vec![0; (width * height * format_count) as usize],
         offset: 0,
         width: width as u32,
         height: height as u32,
+        channels: format_count as u32,
         file_name: unsafe {
             CStr::from_ptr(output_filename)
                 .to_str()
@@ -146,17 +115,11 @@ pub extern "C" fn DspyImageOpen(
         },
     });
 
-    //println!("Contents of ImageData struct:      {:?}", *image);
-
     // Get raw pointer to heap-allocated ImageData struct and pass
     // ownership to image_handle_ptr.
     unsafe {
         *image_handle_ptr = Box::into_raw(image) as *mut _;
     }
-
-    println!("Handle returned to renderer:       {:?}", unsafe {
-        *image_handle_ptr
-    });
 
     // We're dereferencing a raw pointer – this is obviously unsafe
     unsafe {
@@ -240,26 +203,17 @@ pub extern "C" fn DspyImageData(
     x_max_plus_one: os::raw::c_int,
     y_min: os::raw::c_int,
     y_max_plus_one: os::raw::c_int,
-    entry_size: os::raw::c_int,
+    _entry_size: os::raw::c_int,
     data: *const os::raw::c_uchar,
 ) -> ndspy_sys::PtDspyError {
-    println!("DspyImageData()");
-
     let mut image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
-
-    println!("Handle received from the renderer: {:?}", image_handle);
 
     if image_handle == ptr::null_mut() {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
-    println!("Contents of ImageData struct:      {:?}", image);
-
-    let data_size = (entry_size * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
-
-    println!("Data size to copy:                 {}", data_size);
-    println!("Offset:                            {}", image.offset);
-    println!("Entry size:                        {}", entry_size);
+    let data_size =
+        (image.channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
 
     unsafe {
         ptr::copy_nonoverlapping(
@@ -271,36 +225,32 @@ pub extern "C" fn DspyImageData(
 
     image.offset += data_size as isize;
 
+    // Important: we need to give up ownership of the boxed image or
+    // else the compiler will free the memory on exiting this function.
+    Box::into_raw(image);
+
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
-fn write_image(image: Box<ImageData>) -> Result<fs::File, io::Error> {
-    TiffFile::new(
-        Ifd::new()
-            .with_entry(tags::PhotometricInterpretation, SHORT![1]) // Black is zero
-            .with_entry(tags::Compression, SHORT![1]) // No compression
-            .with_entry(tags::ImageWidth, LONG![image.width as u32])
-            .with_entry(tags::ImageLength, LONG![image.height as u32])
-            .with_entry(tags::ResolutionUnit, SHORT![1]) // No resolution unit
-            .with_entry(tags::XResolution, RATIONAL![(1, 1)])
-            .with_entry(tags::YResolution, RATIONAL![(1, 1)])
-            .with_entry(tags::RowsPerStrip, LONG![image.width as u32]) // One strip for the whole image
-            .with_entry(
-                tags::StripByteCounts,
-                LONG![(image.width * image.height) as u32],
-            )
-            .with_entry(tags::StripOffsets, ByteBlock::single(image.data))
-            .single(), // This is the only Ifd in its IfdChain
-    )
-    .write_to(image.file_name)
+fn write_image(image: Box<ImageData>) -> Result<(), png::EncodingError> {
+    let path = path::Path::new(&image.file_name);
+    let file = fs::File::create(path).unwrap();
+    let ref mut writer = io::BufWriter::new(file);
+
+    let mut encoder = png::Encoder::new(writer, image.width, image.height);
+    encoder.set_color(png::ColorType::RGBA);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+
+    writer.write_image_data(unsafe {
+        slice::from_raw_parts(image.data.as_ptr() as *const u8, image.data.len())
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn DspyImageClose(
     image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
-    println!("DspyImageClose()");
-
     DspyImageDelayClose(image_handle)
 }
 
@@ -308,15 +258,11 @@ pub extern "C" fn DspyImageClose(
 pub extern "C" fn DspyImageDelayClose(
     image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
-    println!("DspyImageDelayClose()");
-
     let image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
     match write_image(image) {
-        Ok(_file) => ndspy_sys::PtDspyError_PkDspyErrorNone,
-        Err(e) => e
-            .raw_os_error()
-            .unwrap_or(ndspy_sys::PtDspyError_PkDspyErrorUndefined as i32) as u32,
+        Ok(_) => ndspy_sys::PtDspyError_PkDspyErrorNone,
+        Err(_) => ndspy_sys::PtDspyError_PkDspyErrorUndefined,
     }
 
     // image goes out of scope – this will free the memory

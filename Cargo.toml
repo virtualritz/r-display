@@ -10,5 +10,4 @@ crate-type = ["dylib"]
 
 [dependencies]
 ndspy-sys = { path = "ndspy-sys" }
-text_io = "*"
-tiff-encoder = "*"
+png = ">=0.15.3"
