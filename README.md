@@ -22,7 +22,7 @@ cd r-display
 
 ## Building
 
-Now, inside the repository, kick off the build:
+Kick off the build:
 ```shell
 cargo build --release
 ```
@@ -42,8 +42,6 @@ python lived_edit.py
 **NOTE**
 
 The symlinking step is only needed once.
-
----
 
 ---
 **NOTE**
