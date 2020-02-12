@@ -94,7 +94,16 @@ pub extern "C" fn DspyImageOpen(
     // Ensure all channels are sent to us as 8bit integers.
     // This loops through each format (channel), r, g, b, a etc.
     for i in 0..format_count as isize {
-        (unsafe { *format.offset(i) }).type_ = ndspy_sys::PkDspyUnsigned8;
+        // Rust move semantics are triggered by {}. That's why we need
+        // to use &mut to return a mutable reference from the unsafe{}
+        // block or else we’d get a copy and the value of type_
+        // remained unchanged! See:
+        // https://bluss.github.io/rust/fun/2015/10/11/stuff-the-identity-function-does/
+        (unsafe { &mut *format.offset(i) }).type_ = ndspy_sys::PkDspyUnsigned8;
+
+        // Shorter version but has more code being unneccessarily
+        // inside the unsafe{} block:
+        // unsafe { (*format.offset(i)).type_ = ndspy_sys::PkDspyUnsigned8 }
     }
 
     let image = Box::new(ImageData {
