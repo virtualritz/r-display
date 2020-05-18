@@ -7,9 +7,9 @@ The build only works with [3Delight](https://www.3delight.com/) out of the box. 
 The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/) crate which is part of this project uses the `$DELIGHT` environment variable to find the needed display driver API headers. Edit [`ndspy-sys/build.rs`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/build.rs) to add (an) additional or different search path(s) for these headers.
 
 
-## Prequisites (assuming you never used Rust)
+## Prequisites
 
-Download and install a RenderMan compliant renderer that supports the ndspy API. E.g 3Delight or Pixar’s RenderMan.
+Download and install a RenderMan compliant renderer that supports the **[ndspy API](https://renderman.pixar.com/resources/RenderMan_20/dspyNote.html)**. E.g 3Delight or Pixar’s RenderMan.
 
 ## Building
 
@@ -18,7 +18,7 @@ Kick off the build:
 cargo build --release
 ```
 
-## Testing With 3Delight
+## Testing with 3Delight
 
 Once this has succeeded, change to the `python_test` folder and symlink the display driver:
 ```
