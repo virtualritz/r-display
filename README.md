@@ -9,16 +9,7 @@ The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys
 
 ## Prequisites (assuming you never used Rust)
 
-Install Rust:
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Clone the repository.
-```
-git clone https://github.com/virtualritz/r-display.git
-cd r-display
-```
+Download and install a RenderMan compliant renderer that supports the ndspy API. E.g 3Delight or Pixar’s RenderMan.
 
 ## Building
 
@@ -26,6 +17,8 @@ Kick off the build:
 ```shell
 cargo build --release
 ```
+
+## Testing With 3Delight
 
 Once this has succeeded, change to the `python_test` folder and symlink the display driver:
 ```
