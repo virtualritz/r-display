@@ -39,8 +39,14 @@ c.SetAttribute('s1',
 
 # Setup an output layer.
 c.Create('beauty', 'outputlayer')
-c.SetAttribute('beauty', variablename='Ci', withalpha=1, scalarformat='uint16')
+c.SetAttribute('beauty', variablename='Ci', withalpha=1, scalarformat='f32')
 c.Connect('beauty', '', 's1', 'outputlayers')
+
+c.Create('normal', 'outputlayer')
+c.SetAttribute('normal', variablename='surfacecolor',
+               withalpha=0, scalarformat='f32')
+c.Connect('normal', '', 's1', 'outputlayers')
+
 
 '''
 # Setup an output driver.
@@ -171,16 +177,17 @@ c.RenderControl(action='stop')
 c.Create('driver2', 'outputdriver')
 c.Connect('driver2', '', 'beauty', 'outputdrivers')
 c.SetAttribute('driver2',
-               drivername='rdisplay',
-               imagefilename='test_output.png')
+               drivername='/Users/moritz/code/r-display/target/debug/libr_display',
+               imagefilename='test_output.exr')
 
 
 # Add a second output driver to produce an exr image.
 c.Create('driver3', 'outputdriver')
 c.Connect('driver3', '', 'beauty', 'outputdrivers')
+#c.Connect('driver3', '', 'normal', 'outputdrivers')
 c.SetAttribute('driver3',
-               drivername='tiff',
-               imagefilename='test_output.tif')
+               drivername='exr',
+               imagefilename='test_output_2.exr')
 
 
 # Add a second layer to that exr image. It's a debug AOV from the sample matte

@@ -1,33 +1,67 @@
 #![allow(unused_assignments)]
-
+extern crate exr;
+use c_vec::CVec;
+use exr::prelude::rgba_image::*;
 use ndspy_sys;
+//use oidn;
+use cgmath::prelude::*;
+use std::{
+    ffi::CStr,
+    mem,
+    os::raw::{c_char, c_int, c_void},
+    ptr,
+};
 
-// We output EXR instead once the Rust native EXR crate hits its first
-// release. Building the (working) Rust C++ OpenEXR bindings involves
-// a C++ toolchain (and dependencies) — too much pain in the ass™.
-// Quote from the exrs crate: “Using the Rust bindings to OpenEXR
-// requires compiling multiple C++ Libraries and setting environment
-// variables, which I didn’t quite feel like to do, so I wrote this
-// library instead.”
-/*
-use exr::prelude::*;
-*/
-
-use std::ffi::CStr;
-use std::os::raw::{c_char, c_int, c_uchar, c_void};
-use std::{fs, io, mem, path, ptr, slice};
-
-use png;
+//use png;
 
 #[repr(C)]
 #[derive(Debug)]
 struct ImageData {
-    data: Vec<u8>,
+    data: Vec<f32>,
     offset: isize,
-    width: u32,
-    height: u32,
-    channels: u32,
+    width: usize,
+    height: usize,
+    pixel_aspect: f32,
+    world_to_screen: Option<[f32; 16]>,
+    world_to_camera: Option<[f32; 16]>,
+    near: Option<f32>,
+    far: Option<f32>,
+    /*renderer: Option<Text>,
+    data_window: [f32; 4],
+    display_window: [f32; 4],
+    fov_vertical: f32,
+    fov_horizontal: f32,
+    screen_window_center: [f32; 2],
+    screen_window_width: f32,*/
+    channels: usize,
+    premultiply: bool,
+    compression: Compression,
     file_name: String,
+    denoise: bool,
+}
+
+impl ImageData {
+    fn unpremultiply(&mut self) {
+        for i in (0..self.data.len()).step_by(4) {
+            let alpha = self.data[i + 3];
+            if alpha != 0.0f32 {
+                for c in i..i + 3 {
+                    self.data[c] /= alpha;
+                }
+            }
+        }
+    }
+
+    fn premultiply(&mut self) {
+        for i in (0..self.data.len()).step_by(4) {
+            let alpha = self.data[i + 3];
+            if alpha != 0.0f32 {
+                for c in i..i + 3 {
+                    self.data[c] *= alpha;
+                }
+            }
+        }
+    }
 }
 
 /// A utility function to get user parameters.
@@ -37,10 +71,10 @@ struct ImageData {
 /// # Arguments
 ///
 /// * `name` - A string slice that holds the name of the parameter we
-///            are searching for
+///   are searching for
 /// * `parameter_count` - Number of parameters
 /// * `parameter`       - Array of `ndspy_sys::UserParameter` structs to
-///                       search
+///   search
 ///
 /// # Example
 ///
@@ -50,20 +84,20 @@ struct ImageData {
 /// ```
 pub fn get_parameter<T: Copy>(
     name: &str,
-    parameter_count: c_int,
-    parameter: *const ndspy_sys::UserParameter,
+    parameter: &c_vec::CVec<ndspy_sys::UserParameter>,
 ) -> Option<T> {
-    for i in 0..parameter_count {
-        if name
-            == unsafe { CStr::from_ptr((*parameter.offset(i as isize)).name) }
-                .to_str()
-                .unwrap()
-        {
-            let value_ptr = (unsafe { *(parameter.offset(i as isize)) }).value as *const T;
+    for p in parameter.iter() {
+        let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
+        //println!("{}", p_name);
+        if name == p_name {
+            let value_ptr = p.value as *const T;
 
-            assert!(value_ptr != ptr::null());
-
-            return Some(unsafe { *value_ptr });
+            if value_ptr != ptr::null() {
+                return Some(unsafe { *value_ptr });
+            } else {
+                // Value is missing, exit quietly.
+                break;
+            }
         }
     }
 
@@ -78,7 +112,7 @@ pub extern "C" fn DspyImageOpen(
     width: c_int,
     height: c_int,
     parameter_count: c_int,
-    parameter: *const ndspy_sys::UserParameter,
+    parameter: *mut ndspy_sys::UserParameter,
     format_count: c_int,
     format: *mut ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
@@ -87,56 +121,112 @@ pub extern "C" fn DspyImageOpen(
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
-    // Example use of get_parameter() helper.
-    let _associate_alpha =
-        1 == get_parameter::<i32>("associatealpha", parameter_count, parameter).unwrap_or(0);
+    // Shadow C
+    let mut format = // : Vec<ndspy_sys::PtDspyDevFormat> =
+        unsafe { CVec::new(format, format_count as usize) }; //.into();
 
     // Ensure all channels are sent to us as 8bit integers.
     // This loops through each format (channel), r, g, b, a etc.
-    for i in 0..format_count as isize {
-        // Rust move semantics are triggered by {}. That's why we need
-        // to use &mut to return a mutable reference from the unsafe{}
-        // block or else we’d get a copy and the value of type_
-        // remained unchanged! See:
-        // https://bluss.github.io/rust/fun/2015/10/11/stuff-the-identity-function-does/
-        unsafe { &mut *format.offset(i) }.type_ = ndspy_sys::PkDspyUnsigned8;
-
-        // Shorter version but has more code being unneccessarily
-        // inside the unsafe{} block:
-        // unsafe { (*format.offset(i)).type_ = ndspy_sys::PkDspyUnsigned8 }
+    // We also dump all formats to stderr.
+    for i in 0..format.len() {
+        format.get_mut(i).unwrap().type_ = ndspy_sys::PkDspyFloat32;
+        /*eprintln!("{:?}", unsafe {
+            CStr::from_ptr(format.get(i).unwrap().name)
+        });*/
     }
 
-    let image = Box::new(ImageData {
-        // We initialize the vector with zeros. While this could be
-        // avoided using Vec::with_capacity() & Vec::set_len() this is
-        // bad because it "exposes uninitialized memory to be read and
-        // dropped on panic".
-        // See https://github.com/rust-lang/rust-clippy/issues/4483
-        data: vec![0; (width * height * format_count) as usize],
-        offset: 0,
-        width: width as u32,
-        height: height as u32,
-        channels: format_count as u32,
-        file_name: unsafe {
-            CStr::from_ptr(output_filename)
-                .to_str()
-                .unwrap()
-                .to_string()
-        },
-    });
+    // Shadow C paramater array with wrapped version
+    let parameter = unsafe { CVec::new(parameter, parameter_count as usize) };
 
-    // Get raw pointer to heap-allocated ImageData struct and pass
-    // ownership to image_handle_ptr.
-    unsafe {
-        *image_handle_ptr = Box::into_raw(image) as *mut _;
+    if output_filename != std::ptr::null() {
+        let image = Box::new(ImageData {
+            data: vec![0.0f32; (width * height * format_count) as usize],
+            offset: 0,
+
+            width: width as usize,
+            height: height as usize,
+            pixel_aspect: get_parameter::<f32>("PixelAspectRatio", &parameter).unwrap_or(1.0f32),
+
+            world_to_screen: get_parameter::<[f32; 16]>("NP", &parameter),
+            world_to_camera: get_parameter::<[f32; 16]>("Nl", &parameter),
+
+            near: get_parameter::<f32>("near", &parameter),
+            far: get_parameter::<f32>("far", &parameter),
+            /*renderer: match get_parameter::<*const std::os::raw::c_char>("Software", &parameter) {
+                Some(c_str_ptr) => Some(
+                    unsafe { CStr::from_ptr(c_str_ptr) }
+                        .to_string_lossy()
+                        .into_owned()
+                        .as_str()
+                        .try_into()
+                        .unwrap(),
+                ),
+                None => None,
+            },
+            fov_vertical: f32,
+            fov_horizontal: f32,
+            screen_window_center: [f32; 2],
+            screen_window_width: f32,
+                */
+            channels: format_count as usize,
+
+            premultiply: match get_parameter::<i32>("associatealpha", &parameter) {
+                Some(b) => b != 0,
+                None => true,
+            },
+
+            compression: match get_parameter::<*const std::os::raw::c_char>(
+                "compression",
+                &parameter,
+            ) {
+                None => Compression::ZIP16,
+                Some(c_str_ptr) => match unsafe { CStr::from_ptr(c_str_ptr) }
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "none" => Compression::Uncompressed,
+                    "rle" => Compression::RLE,
+                    "piz" => Compression::PIZ,
+                    "pxr24" => Compression::PXR24,
+                    "zip" => Compression::ZIP16,
+                    _ => {
+                        eprintln!(
+                                                             "dspy_exr_oidn: selected compression is not supported, reverting to 'zip'"
+                                                         );
+                        Compression::ZIP16
+                    }
+                },
+            },
+
+            file_name: unsafe {
+                CStr::from_ptr(output_filename)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            },
+
+            denoise: match get_parameter::<i32>("denoise", &parameter) {
+                Some(b) => b != 0,
+                None => true,
+            },
+        });
+
+        // Get raw pointer to heap-allocated ImageData struct and pass
+        // ownership to image_handle_ptr.
+        unsafe {
+            *image_handle_ptr = Box::into_raw(image) as *mut _;
+        }
+
+        unsafe {
+            (*flag_stuff).flags |= ndspy_sys::PkDspyFlagsWantsScanLineOrder as i32;
+        }
+
+        ndspy_sys::PtDspyError_PkDspyErrorNone
+    } else {
+        // We're missing an output file name.
+        ndspy_sys::PtDspyError_PkDspyErrorBadParams
     }
-
-    // We're dereferencing a raw pointer – this is obviously unsafe
-    unsafe {
-        (*flag_stuff).flags |= ndspy_sys::PkDspyFlagsWantsScanLineOrder as i32;
-    }
-
-    ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
 #[no_mangle]
@@ -144,7 +234,7 @@ pub extern "C" fn DspyImageQuery(
     image_handle: ndspy_sys::PtDspyImageHandle,
     query_type: ndspy_sys::PtDspyQueryType,
     data_len: c_int,
-    mut data: *mut c_void,
+    mut data: *const c_void,
 ) -> ndspy_sys::PtDspyError {
     if (data == ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
@@ -173,7 +263,7 @@ pub extern "C" fn DspyImageQuery(
                 }
             });
 
-            assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
+            debug_assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
 
             // Transfer ownership of the size_query heap object to the
             // data pointer.
@@ -186,6 +276,8 @@ pub extern "C" fn DspyImageQuery(
                 unused: 0,
             });
 
+            // Transfer ownership of the size_query heap object to the
+            // data pointer.
             data = Box::into_raw(overwrite_info) as *mut _;
         }
 
@@ -205,7 +297,7 @@ pub extern "C" fn DspyImageData(
     y_min: c_int,
     y_max_plus_one: c_int,
     _entry_size: c_int,
-    data: *const c_uchar,
+    data: *const f32,
 ) -> ndspy_sys::PtDspyError {
     let mut image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
@@ -233,34 +325,96 @@ pub extern "C" fn DspyImageData(
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
-fn disassociate_alpha(image: &mut Box<ImageData>) -> &mut Box<ImageData> {
-    for i in (0..image.data.len()).step_by(4) {
-        let alpha = image.data[i + 3];
-        if alpha != 0 {
-            //let alpha_float = alpha as f32 / 255.0;
-            for c in i..i + 3 {
-                let channel = image.data[c] as u32;
-                image.data[c] = (((channel << 8) - channel) / alpha as u32) as u8;
-            }
+/*
+fn write_png(image: &Box<ImageData>) -> Result<(), png::EncodingError> {
+    let path = path::Path::new(&image.file_name);
+    match fs::File::create(path) {
+        Ok(file) => {
+            let writer = io::BufWriter::new(file);
+
+            let mut encoder = png::Encoder::new(writer, image.width, image.height);
+            encoder.set_color(png::ColorType::RGBA);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header()?;
+
+            writer.write_image_data(unsafe {
+                slice::from_raw_parts(image.data.as_ptr() as *const u8, image.data.len())
+            })
+        }
+        Err(e) => {
+            eprintln!("[r-display] Cannot open '{}' for writing.", path.display());
+            Err(png::EncodingError::IoError(e))
         }
     }
+}
+*/
 
-    image
+fn add_field_of_views(layer_attributes: &mut LayerAttributes) {
+    if layer_attributes.world_to_camera == None
+        || layer_attributes.world_to_normalized_device == None
+    {
+        return;
+    }
+
+    let w_to_cam_tmp = layer_attributes.world_to_camera.unwrap();
+    let w_to_ndc_tmp = layer_attributes.world_to_normalized_device.unwrap();
+    let w_to_cam: &cgmath::Matrix4<f32> = (&w_to_cam_tmp).into();
+    let w_to_ndc: &cgmath::Matrix4<f32> = (&w_to_ndc_tmp).into();
+
+    if w_to_ndc[2][3] == 0. {
+        return;
+    }
+
+    let w_to_ndc_inv = w_to_ndc.invert();
+
+    if None == w_to_ndc_inv {
+        return;
+    }
+
+    let m = w_to_ndc_inv.unwrap() * *w_to_cam;
+    let _v = m * cgmath::Vector4::<f32>::new(1., 1., 0., 0.);
+
+    /*layer_attributes.horizontal_field_of_view =
+        v.x.atan() * 360. / std::f32::consts::PI;
+    layer_attributes.vertical_field_of_view =
+        v.y.atan() * 360. / std::f32::consts::PI;*/
 }
 
-fn write_image(image: &Box<ImageData>) -> Result<(), png::EncodingError> {
-    let path = path::Path::new(&image.file_name);
-    let file = fs::File::create(path).unwrap();
-    let ref mut writer = io::BufWriter::new(file);
+fn write_exr(image: &Box<ImageData>) {
+    // -> Result<(), std::boxed::Box<dyn std::error::Error>> {
+    let sample = |position: Vec2<usize>| {
+        let index = image.channels * (position.x() + position.y() * image.width);
 
-    let mut encoder = png::Encoder::new(writer, image.width, image.height);
-    encoder.set_color(png::ColorType::RGBA);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
+        Pixel::rgba(
+            image.data[index],
+            image.data[index + 1],
+            image.data[index + 2],
+            image.data[index + 3],
+        )
+    };
 
-    writer.write_image_data(unsafe {
-        slice::from_raw_parts(image.data.as_ptr() as *const u8, image.data.len())
-    })
+    let mut image_info = ImageInfo::rgba((image.width, image.height), SampleType::F32);
+
+    image_info.image_attributes.pixel_aspect = image.pixel_aspect;
+
+    //image_info.layer_attributes.comments = image.renderer;
+
+    image_info.layer_attributes.world_to_camera = image.world_to_camera;
+    image_info.layer_attributes.world_to_normalized_device = image.world_to_screen;
+
+    add_field_of_views(&mut image_info.layer_attributes);
+
+    // write it to a file with all cores in parallel
+    image_info
+        .with_encoding(Encoding::for_compression(image.compression))
+        .write_pixels_to_file(
+            image.file_name.clone(),
+            write_options::high(), // this will actually generate the pixels in parallel on all cores
+            &sample,
+        )
+        .unwrap();
+
+    //    Ok(())
 }
 
 #[no_mangle]
@@ -274,16 +428,53 @@ pub extern "C" fn DspyImageClose(
 pub extern "C" fn DspyImageDelayClose(
     image_handle: ndspy_sys::PtDspyImageHandle,
 ) -> ndspy_sys::PtDspyError {
-    let mut image = unsafe { &mut Box::from_raw(image_handle as *mut ImageData) };
+    let image = unsafe { &mut Box::from_raw(image_handle as *mut ImageData) };
 
-    image = disassociate_alpha(image);
+    if image.denoise {
+        let device = oidn::Device::new();
+        let mut filter = oidn::RayTracing::new(&device);
+        // Optionally add float3 normal and albedo buffers as well
+        filter
+            .set_img_dims(image.width as usize, image.height as usize)
+            // .set_normal()
+            // .set_albedo()
+            .set_hdr(true);
 
-    match write_image(&image) {
-        Ok(_) => ndspy_sys::PtDspyError_PkDspyErrorNone,
-        Err(_) => ndspy_sys::PtDspyError_PkDspyErrorUndefined,
+        image.unpremultiply();
+
+        let rgb: Vec<f32> = image
+            .data
+            .chunks(4)
+            .flat_map(|c| c.iter().copied().take(3))
+            .collect();
+
+        let mut denoised_rgb = vec![0.0f32; rgb.len()];
+
+        filter
+            .execute(&rgb[..], &mut denoised_rgb[..])
+            .expect("[r-display] Error denoising image.");
+
+        let mut image_data_rgba_iter = image.data.chunks_mut(4);
+        denoised_rgb
+            .chunks(3)
+            .for_each(|c| image_data_rgba_iter.next().unwrap()[0..3].copy_from_slice(c));
+
+        if image.premultiply {
+            image.premultiply();
+        }
+    } else if !image.premultiply {
+        image.unpremultiply();
     }
 
+    write_exr(&image);
+    /*
+    match write_png(&image) {
+        Ok(_) => ndspy_sys::PtDspyError_PkDspyErrorNone,
+        Err(_) => ndspy_sys::PtDspyError_PkDspyErrorUndefined,
+    }*/
+
     // image goes out of scope – this will free the memory
+    ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
 #[cfg(test)]

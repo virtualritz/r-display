@@ -1,52 +1,48 @@
 # r-display
 
-Minimal [NSI](https://nsi.readthedocs.io/)/RenderMan 8bit PNG display driver template written in Rust.
+[NSI](https://nsi.readthedocs.io/)/RenderMan® [OpenEXR](http://www.openexr.com/) display driver written in Rust.
 
 The build only works with [3Delight](https://www.3delight.com/) out of the box. Build instructions should work for **Linux** and **macOS**. On **Windows** your mileage my vary.
 
-The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/) crate which is part of this project uses the `$DELIGHT` environment variable to find the needed display driver API headers. Edit [`ndspy-sys/build.rs`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/build.rs) to add (an) additional or different search path(s) for these headers.
-
-
-## Prequisites (assuming you never used Rust)
-
-Install Rust:
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Clone the repository.
-```
-git clone https://github.com/virtualritz/r-display.git
-cd r-display
-```
-
 ## Building
 
-Kick off the build:
+The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/) crate which is part of this project uses the `DELIGHT` environment variable to find the needed display driver API headers. If you have 3Delight installed this will *just* work.
+
+You need a copy of [Intel® Open Image Denoise](%5Bhttps://www.openimagedenoise.org/%5D(https://www.openimagedenoise.org/) (IOID). Grab a package from their [Download section]([https://www.openimagedenoise.org/downloads.html](https://www.openimagedenoise.org/downloads.html)). Unpack this somewhere.
+
+## ### macOS
+
+Export the OIDN location for the build to find the headers & libraries. For example:
+
+```
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+```
+
+Build the display driver:
+
 ```shell
-cargo build --release
+./build-macos.sh
 ```
 
-Once this has succeeded, change to the `python_test` folder and symlink the display driver:
-```
-cd python_test
-ln -s ../target/release/libr_display.dylib rdisplay.dpy
-```
+## Denoising
 
-Now run the test:
-```
-python lived_edit.py
-```
+The display driver uses Intel® Open Image Denoise to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`int`) parameter to control this. Setting this to **zero** switches denoising *off*.
 
----
-**NOTE**
+Using normal and albedo layers to improve the denoising or denoising additional layers is currently not supported. If you need this, ping me.
 
-The symlinking step is only needed once.
+## Compression
 
----
-**NOTE**
+This display driver supports the following OpenEXR compression methods which are set by the `compression` (`string`) parameter:
 
-If you do a debug build (omitting the `--release` flag to `cargo build`), the asset will be in `../target/debug/libr_display.dylib` instead. You will need to change the symbolic link accordingly.
+-   [x] `none` uncompressed
+-   [x] `zip` (lossless)
+-   [x] `rle` (lossless)
+-   [x] `piz` (lossless)
+-   [x] `pxr24` (lossy)
+-   [ ] `b44`, `b44a` not yet supported
+-   [ ] `dwaa`, `dwab` not yet supported
 
----
 
+## Other parameters
+
+When `associatealpha` (`int`) is set to **zero** the image will be written out *unpremultiplied*.
