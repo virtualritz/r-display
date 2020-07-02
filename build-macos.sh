@@ -13,7 +13,7 @@ mkdir -p target/release/display &&
 cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/release/display/libOpenImageDenoise.0.dylib &&
 cp $OIDN_DIR/lib/libtbbmalloc.dylib target/release/display/ &&
 cp $OIDN_DIR/lib/libtbb.dylib target/release/display/ &&
-mv target/release/libr_display.dylib target/release/display/r-display.display &&
+mv target/release/libr_display.dylib target/release/display/r-display.dpy &&
 echo &&
 echo "Display driver is in target/release/display/." &&
 echo "Copy the contents of this folder to $DELIGHT/displays/ to use."

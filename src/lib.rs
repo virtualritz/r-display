@@ -36,6 +36,8 @@ struct ImageData {
     channels: usize,
     premultiply: bool,
     compression: Compression,
+    line_order: Option<LineOrder>,
+    tile_size: Option<Vec2<usize>>,
     file_name: String,
     denoise: bool,
 }
@@ -64,6 +66,8 @@ impl ImageData {
     }
 }
 
+type Type = u8;
+
 /// A utility function to get user parameters.
 ///
 /// The template argument is the expected type of the resp. parameter.
@@ -84,12 +88,14 @@ impl ImageData {
 /// ```
 pub fn get_parameter<T: Copy>(
     name: &str,
+    type_: Type,
+    len: usize,
     parameter: &c_vec::CVec<ndspy_sys::UserParameter>,
 ) -> Option<T> {
     for p in parameter.iter() {
         let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
         //println!("{}", p_name);
-        if name == p_name {
+        if name == p_name && type_ == p.valueType as u8 && len == p.valueCount as usize {
             let value_ptr = p.value as *const T;
 
             if value_ptr != ptr::null() {
@@ -145,13 +151,14 @@ pub extern "C" fn DspyImageOpen(
 
             width: width as usize,
             height: height as usize,
-            pixel_aspect: get_parameter::<f32>("PixelAspectRatio", &parameter).unwrap_or(1.0f32),
+            pixel_aspect: get_parameter::<f32>("PixelAspectRatio", b'f', 1, &parameter)
+                .unwrap_or(1.0f32),
 
-            world_to_screen: get_parameter::<[f32; 16]>("NP", &parameter),
-            world_to_camera: get_parameter::<[f32; 16]>("Nl", &parameter),
+            world_to_screen: get_parameter::<[f32; 16]>("NP", b'f', 16, &parameter),
+            world_to_camera: get_parameter::<[f32; 16]>("Nl", b'f', 16, &parameter),
 
-            near: get_parameter::<f32>("near", &parameter),
-            far: get_parameter::<f32>("far", &parameter),
+            near: get_parameter::<f32>("near", b'f', 1, &parameter),
+            far: get_parameter::<f32>("far", b'f', 1, &parameter),
             /*renderer: match get_parameter::<*const std::os::raw::c_char>("Software", &parameter) {
                 Some(c_str_ptr) => Some(
                     unsafe { CStr::from_ptr(c_str_ptr) }
@@ -170,13 +177,15 @@ pub extern "C" fn DspyImageOpen(
                 */
             channels: format_count as usize,
 
-            premultiply: match get_parameter::<i32>("associatealpha", &parameter) {
+            premultiply: match get_parameter::<u32>("associatealpha", b'i', 1, &parameter) {
                 Some(b) => b != 0,
                 None => true,
             },
 
             compression: match get_parameter::<*const std::os::raw::c_char>(
                 "compression",
+                b's',
+                1,
                 &parameter,
             ) {
                 None => Compression::ZIP16,
@@ -191,12 +200,36 @@ pub extern "C" fn DspyImageOpen(
                     "pxr24" => Compression::PXR24,
                     "zip" => Compression::ZIP16,
                     _ => {
-                        eprintln!(
-                                                             "dspy_exr_oidn: selected compression is not supported, reverting to 'zip'"
-                                                         );
+                        eprintln!("dspy_exr_oidn: selected compression is not supported; reverting to 'zip'");
                         Compression::ZIP16
                     }
                 },
+            },
+
+            line_order: match get_parameter::<*const std::os::raw::c_char>(
+                "line_order",
+                b's',
+                1,
+                &parameter,
+            ) {
+                None => None,
+                Some(c_str_ptr) => match unsafe { CStr::from_ptr(c_str_ptr) }
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "increasing" => Some(LineOrder::Increasing),
+                    "decreasing" => Some(LineOrder::Decreasing),
+                    _ => {
+                        eprintln!("dspy_exr_oidn: selected line_order is not supported; ignoring");
+                        None
+                    }
+                },
+            },
+
+            tile_size: match get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter) {
+                None => None,
+                Some(t) => Some(Vec2::from((t[0] as usize, t[1] as usize))),
             },
 
             file_name: unsafe {
@@ -206,7 +239,7 @@ pub extern "C" fn DspyImageOpen(
                     .to_string()
             },
 
-            denoise: match get_parameter::<i32>("denoise", &parameter) {
+            denoise: match get_parameter::<u32>("denoise", b'i', 1, &parameter) {
                 Some(b) => b != 0,
                 None => true,
             },
@@ -258,7 +291,7 @@ pub extern "C" fn DspyImageQuery(
                     ndspy_sys::PtDspySizeInfo {
                         width: image.width as u64,
                         height: image.height as u64,
-                        aspectRatio: 1.0,
+                        aspectRatio: image.pixel_aspect,
                     }
                 }
             });
@@ -325,30 +358,6 @@ pub extern "C" fn DspyImageData(
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
-/*
-fn write_png(image: &Box<ImageData>) -> Result<(), png::EncodingError> {
-    let path = path::Path::new(&image.file_name);
-    match fs::File::create(path) {
-        Ok(file) => {
-            let writer = io::BufWriter::new(file);
-
-            let mut encoder = png::Encoder::new(writer, image.width, image.height);
-            encoder.set_color(png::ColorType::RGBA);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header()?;
-
-            writer.write_image_data(unsafe {
-                slice::from_raw_parts(image.data.as_ptr() as *const u8, image.data.len())
-            })
-        }
-        Err(e) => {
-            eprintln!("[r-display] Cannot open '{}' for writing.", path.display());
-            Err(png::EncodingError::IoError(e))
-        }
-    }
-}
-*/
-
 fn add_field_of_views(layer_attributes: &mut LayerAttributes) {
     if layer_attributes.world_to_camera == None
         || layer_attributes.world_to_normalized_device == None
@@ -404,17 +413,28 @@ fn write_exr(image: &Box<ImageData>) {
 
     add_field_of_views(&mut image_info.layer_attributes);
 
+    let mut encoding = Encoding::for_compression(image.compression);
+
+    if let Some(l) = image.line_order {
+        encoding.line_order = l;
+    }
+
+    if let Some(s) = image.tile_size {
+        encoding.tile_size = Some(s);
+    }
+
     // write it to a file with all cores in parallel
     image_info
-        .with_encoding(Encoding::for_compression(image.compression))
+        .with_encoding(encoding)
         .write_pixels_to_file(
             image.file_name.clone(),
-            write_options::high(), // this will actually generate the pixels in parallel on all cores
+            // this will actually generate the pixels in parallel on all cores
+            write_options::high(),
             &sample,
         )
         .unwrap();
 
-    //    Ok(())
+    //    Ok(())ls
 }
 
 #[no_mangle]

@@ -45,4 +45,10 @@ This display driver supports the following OpenEXR compression methods which are
 
 ## Other parameters
 
-When `associatealpha` (`int`) is set to **zero** the image will be written out *unpremultiplied*.
+When `associatealpha` (`integer`) is set to **zero** the image will be written out *unpremultiplied*.
+
+A `line_order` parameter can be used to set this explicitly to e.g. store the image bottom-top. Accepted values are `increasing` and `decreasing`.
+If unspecified the driver will choose a line order matching the compression.
+
+A `tile_size` (`integer[2]`) parameter can be specified to set the width and hight of the tiles the image is stored in.
+If unspecified the driver will choose a tile size matching the compression.
