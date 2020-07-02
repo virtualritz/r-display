@@ -94,7 +94,7 @@ pub fn get_parameter<T: Copy>(
 ) -> Option<T> {
     for p in parameter.iter() {
         let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
-        //println!("{}", p_name);
+
         if name == p_name && type_ == p.valueType as u8 && len == p.valueCount as usize {
             let value_ptr = p.value as *const T;
 
@@ -177,7 +177,7 @@ pub extern "C" fn DspyImageOpen(
                 */
             channels: format_count as usize,
 
-            premultiply: match get_parameter::<u32>("associatealpha", b'i', 1, &parameter) {
+            premultiply: match get_parameter::<u32>("premultiply", b'i', 1, &parameter) {
                 Some(b) => b != 0,
                 None => true,
             },
@@ -200,7 +200,7 @@ pub extern "C" fn DspyImageOpen(
                     "pxr24" => Compression::PXR24,
                     "zip" => Compression::ZIP16,
                     _ => {
-                        eprintln!("dspy_exr_oidn: selected compression is not supported; reverting to 'zip'");
+                        eprintln!("[r-display] selected compression is not supported; reverting to 'zip'");
                         Compression::ZIP16
                     }
                 },
@@ -221,7 +221,7 @@ pub extern "C" fn DspyImageOpen(
                     "increasing" => Some(LineOrder::Increasing),
                     "decreasing" => Some(LineOrder::Decreasing),
                     _ => {
-                        eprintln!("dspy_exr_oidn: selected line_order is not supported; ignoring");
+                        eprintln!("[r-display] selected line_order is not supported; ignoring");
                         None
                     }
                 },
@@ -244,6 +244,8 @@ pub extern "C" fn DspyImageOpen(
                 None => true,
             },
         });
+
+        eprintln!("{:?}", image.denoise);
 
         // Get raw pointer to heap-allocated ImageData struct and pass
         // ownership to image_handle_ptr.

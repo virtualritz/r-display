@@ -10,7 +10,7 @@ install_name_tool -change "@rpath/libtbb.dylib" "@loader_path/libtbb.dylib" $OID
 install_name_tool -change "@rpath/libtbbmalloc.dylib" "@loader_path/libtbbmalloc.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
 cargo build --release &&
 mkdir -p target/release/display &&
-cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/release/display/libOpenImageDenoise.0.dylib &&
+cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/release/display/libOpenImageDenoise.dylib &&
 cp $OIDN_DIR/lib/libtbbmalloc.dylib target/release/display/ &&
 cp $OIDN_DIR/lib/libtbb.dylib target/release/display/ &&
 mv target/release/libr_display.dylib target/release/display/r-display.dpy &&
