@@ -8,9 +8,9 @@ The build only works with [3Delight](https://www.3delight.com/) out of the box. 
 
 The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/) crate which is part of this project uses the `DELIGHT` environment variable to find the needed display driver API headers. If you have 3Delight installed this will *just* work.
 
-You need a copy of [Intel® Open Image Denoise](%5Bhttps://www.openimagedenoise.org/%5D(https://www.openimagedenoise.org/) (IOID). Grab a package from their [Download section]([https://www.openimagedenoise.org/downloads.html](https://www.openimagedenoise.org/downloads.html)). Unpack this somewhere.
+You need a copy of Intel® Open Image Denoise (IOID). Grab a package from their [Download section]([https://www.openimagedenoise.org/downloads.html](https://www.openimagedenoise.org/downloads.html)). Unpack this somewhere.
 
-## ### macOS
+### macOS
 
 Export the OIDN location for the build to find the headers & libraries. For example:
 
@@ -26,9 +26,9 @@ Build the display driver:
 
 ## Denoising
 
-The display driver uses Intel® Open Image Denoise to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`int`) parameter to control this. Setting this to **zero** switches denoising *off*.
+The display driver uses [Intel® Open Image Denoise](https://www.openimagedenoise.org/) to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`int`) parameter to control this. Setting this to **zero** switches denoising *off*.
 
-Using normal and albedo layers to improve the denoising or denoising additional layers is currently not supported. If you need this, ping me.
+Using **normal** and **albedo** layers to improve the denoising or denoising additional layers is currently **not supported**. If you need this, ping me.
 
 ## Compression
 
