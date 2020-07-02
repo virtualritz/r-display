@@ -476,11 +476,3 @@ pub extern "C" fn DspyImageDelayClose(
     // image goes out of scope – this will free the memory
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(1 + 1, 2);
-    }
-}
