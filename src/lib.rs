@@ -42,6 +42,7 @@ struct ImageData {
     denoise: bool,
 }
 
+// FIXME: Parallelize this
 impl ImageData {
     fn unpremultiply(&mut self) {
         for i in (0..self.data.len()).step_by(4) {
@@ -56,11 +57,8 @@ impl ImageData {
 
     fn premultiply(&mut self) {
         for i in (0..self.data.len()).step_by(4) {
-            let alpha = self.data[i + 3];
-            if alpha != 0.0f32 {
-                for c in i..i + 3 {
-                    self.data[c] *= alpha;
-                }
+            for c in i..i + 3 {
+                self.data[c] *= self.data[i + 3];
             }
         }
     }

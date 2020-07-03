@@ -10,10 +10,11 @@ install_name_tool -change "@rpath/libtbb.dylib" "@loader_path/libtbb.dylib" $OID
 install_name_tool -change "@rpath/libtbbmalloc.dylib" "@loader_path/libtbbmalloc.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
 cargo build --release &&
 mkdir -p target/release/display &&
-cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/release/display/libOpenImageDenoise.dylib &&
+cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/release/display/ &&
 cp $OIDN_DIR/lib/libtbbmalloc.dylib target/release/display/ &&
 cp $OIDN_DIR/lib/libtbb.dylib target/release/display/ &&
 mv target/release/libr_display.dylib target/release/display/r-display.dpy &&
 echo &&
 echo "Display driver is in target/release/display/." &&
-echo "Copy the contents of this folder to $DELIGHT/displays/ to use."
+echo "Copy the contents of this folder to $DELIGHT/displays/ to use. E.g.:"
+echo "sudo cp -R target/release/display/ $DELIGHT/displays/"

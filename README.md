@@ -10,16 +10,26 @@ The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys
 
 You need a copy of Intel® Open Image Denoise (IOID). Grab a package from their [Download section]([https://www.openimagedenoise.org/downloads.html](https://www.openimagedenoise.org/downloads.html)). Unpack this somewhere.
 
-### macOS
+### Linux
 
 Export the OIDN location for the build to find the headers & libraries. For example:
-
 ```
 export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
 ```
 
 Build the display driver:
+```shell
+./build-linux.sh
+```
 
+### macOS
+
+Export the OIDN location for the build to find the headers & libraries. For example:
+```
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+```
+
+Build the display driver:
 ```shell
 ./build-macos.sh
 ```
