@@ -1,8 +1,10 @@
 # r-display
 
-[NSI](https://nsi.readthedocs.io/)/RenderMan® [OpenEXR](http://www.openexr.com/) display driver written in Rust.
+[NSI](https://nsi.readthedocs.io/)/[RenderMan®](https://renderman.pixar.com/)
+[OpenEXR](http://www.openexr.com/) display driver written in Rust.
 
-The build only works with [3Delight](https://www.3delight.com/) out of the box. Build instructions should work for **Linux** and **macOS**. On **Windows** your mileage my vary.
+Build instructions should work for **Linux** and **macOS**. On **Windows** your
+mileage my vary.
 
 ## Building
 
@@ -52,7 +54,6 @@ This display driver supports the following OpenEXR compression methods which are
 -   [ ] `b44`, `b44a` not yet supported
 -   [ ] `dwaa`, `dwab` not yet supported
 
-
 ## Other parameters
 
 When `premultiply` (`integer`) is set to **zero** the image will be written out *unpremultiplied*.
@@ -62,3 +63,8 @@ If unspecified the driver will choose a line order matching the compression.
 
 A `tile_size` (`integer[2]`) parameter can be specified to set the width and hight of the tiles the image is stored in.
 If unspecified the driver will choose a tile size matching the compression.
+
+## Testing
+
+The code in the `python_test` folder requires [3Delight](https://www.3delight.com/)
+to run.

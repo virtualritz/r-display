@@ -1,18 +1,17 @@
 #![allow(unused_assignments)]
+
 extern crate exr;
 use c_vec::CVec;
+use cgmath::prelude::*;
 use exr::prelude::rgba_image::*;
 use ndspy_sys;
-//use oidn;
-use cgmath::prelude::*;
+use rayon::prelude::*;
 use std::{
     ffi::CStr,
     mem,
     os::raw::{c_char, c_int, c_void},
     ptr,
 };
-
-//use png;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -26,14 +25,19 @@ struct ImageData {
     world_to_camera: Option<[f32; 16]>,
     near: Option<f32>,
     far: Option<f32>,
-    /*renderer: Option<Text>,
+    num_channels: usize,
+    alpha_index: Option<usize>,
+    rgb_index: Option<usize>,
+    albedo_index: Option<usize>,
+    normal_index: Option<usize>,
+    renderer: Option<String>,
+    /*
     data_window: [f32; 4],
     display_window: [f32; 4],
     fov_vertical: f32,
     fov_horizontal: f32,
     screen_window_center: [f32; 2],
     screen_window_width: f32,*/
-    channels: usize,
     premultiply: bool,
     compression: Compression,
     line_order: Option<LineOrder>,
@@ -42,24 +46,36 @@ struct ImageData {
     denoise: bool,
 }
 
-// FIXME: Parallelize this
 impl ImageData {
     fn unpremultiply(&mut self) {
-        for i in (0..self.data.len()).step_by(4) {
-            let alpha = self.data[i + 3];
-            if alpha != 0.0f32 {
-                for c in i..i + 3 {
-                    self.data[c] /= alpha;
-                }
-            }
+        if let (Some(alpha_index), Some(rgb_index)) = (self.alpha_index, self.rgb_index) {
+            self.data
+                // Each pixel is a chunk.
+                .par_chunks_mut(self.num_channels)
+                // Ignore pixels whose alpha is zero.
+                .filter(|chunk| chunk[alpha_index] != 0.0f32)
+                .for_each(|chunk| {
+                    let inv_alpha = 1. / chunk[alpha_index];
+                    chunk[rgb_index + 0] *= inv_alpha;
+                    chunk[rgb_index + 1] *= inv_alpha;
+                    chunk[rgb_index + 2] *= inv_alpha;
+                });
         }
     }
 
     fn premultiply(&mut self) {
-        for i in (0..self.data.len()).step_by(4) {
-            for c in i..i + 3 {
-                self.data[c] *= self.data[i + 3];
-            }
+        if let (Some(alpha_index), Some(rgb_index)) = (self.alpha_index, self.rgb_index) {
+            self.data
+                .par_chunks_mut(self.num_channels)
+                // We do not filer for zero alpha as denoising
+                // can create artifacts at edges that
+                // premultiplication can make disappear.
+                .for_each(|chunk| {
+                    let alpha = chunk[alpha_index];
+                    chunk[rgb_index + 0] *= alpha;
+                    chunk[rgb_index + 1] *= alpha;
+                    chunk[rgb_index + 2] *= alpha;
+                });
         }
     }
 }
@@ -125,16 +141,34 @@ pub extern "C" fn DspyImageOpen(
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
-    // Shadow C
-    let mut format = // : Vec<ndspy_sys::PtDspyDevFormat> =
-        unsafe { CVec::new(format, format_count as usize) }; //.into();
+    // Shadow C.
+    let mut format = unsafe { CVec::new(format, format_count as usize) };
 
-    // Ensure all channels are sent to us as 8bit integers.
+    let num_channels = format.len();
+
+    let mut alpha_index = None;
+    let mut rgb_index = None;
+    let mut albedo_index = None;
+    let mut normal_index = None;
+
     // This loops through each format (channel), r, g, b, a etc.
-    // We also dump all formats to stderr.
-    for i in 0..format.len() {
+    for i in 0..num_channels {
+        // Ensure all channels are sent to us as 32bit float.
         format.get_mut(i).unwrap().type_ = ndspy_sys::PkDspyFloat32;
-        /*eprintln!("{:?}", unsafe {
+
+        let name = unsafe { CStr::from_ptr(format.get(i).unwrap().name) };
+
+        if "r" == name.to_string_lossy() {
+            rgb_index = Some(i);
+        } else if "a" == name.to_string_lossy() {
+            alpha_index = Some(i);
+        } else if "albedo.000.r" == name.to_string_lossy() {
+            albedo_index = Some(i);
+        } else if "N_world.000.x" == name.to_string_lossy() {
+            normal_index = Some(i);
+        }
+        /*
+        eprintln!("[r-display] {:?}", unsafe {
             CStr::from_ptr(format.get(i).unwrap().name)
         });*/
     }
@@ -157,7 +191,16 @@ pub extern "C" fn DspyImageOpen(
 
             near: get_parameter::<f32>("near", b'f', 1, &parameter),
             far: get_parameter::<f32>("far", b'f', 1, &parameter),
-            /*renderer: match get_parameter::<*const std::os::raw::c_char>("Software", &parameter) {
+
+            num_channels,
+            alpha_index,
+            rgb_index,
+            albedo_index,
+            normal_index,
+
+            renderer: match get_parameter::<*const std::os::raw::c_char>(
+                "Software", b's', 1, &parameter,
+            ) {
                 Some(c_str_ptr) => Some(
                     unsafe { CStr::from_ptr(c_str_ptr) }
                         .to_string_lossy()
@@ -168,13 +211,13 @@ pub extern "C" fn DspyImageOpen(
                 ),
                 None => None,
             },
+
+            /*
             fov_vertical: f32,
             fov_horizontal: f32,
             screen_window_center: [f32; 2],
             screen_window_width: f32,
                 */
-            channels: format_count as usize,
-
             premultiply: match get_parameter::<u32>("premultiply", b'i', 1, &parameter) {
                 Some(b) => b != 0,
                 None => true,
@@ -187,21 +230,23 @@ pub extern "C" fn DspyImageOpen(
                 &parameter,
             ) {
                 None => Compression::ZIP16,
-                Some(c_str_ptr) => match unsafe { CStr::from_ptr(c_str_ptr) }
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .as_str()
-                {
-                    "none" => Compression::Uncompressed,
-                    "rle" => Compression::RLE,
-                    "piz" => Compression::PIZ,
-                    "pxr24" => Compression::PXR24,
-                    "zip" => Compression::ZIP16,
-                    _ => {
-                        eprintln!("[r-display] selected compression is not supported; reverting to 'zip'");
-                        Compression::ZIP16
+                Some(c_str_ptr) => {
+                    match unsafe { CStr::from_ptr(c_str_ptr) }
+                        .to_string_lossy()
+                        .to_ascii_lowercase()
+                        .as_str()
+                    {
+                        "none" => Compression::Uncompressed,
+                        "rle" => Compression::RLE,
+                        "piz" => Compression::PIZ,
+                        "pxr24" => Compression::PXR24,
+                        "zip" => Compression::ZIP16,
+                        _ => {
+                            eprintln!("[r-display] selected compression is not supported; reverting to 'zip'");
+                            Compression::ZIP16
+                        }
                     }
-                },
+                }
             },
 
             line_order: match get_parameter::<*const std::os::raw::c_char>(
@@ -242,8 +287,6 @@ pub extern "C" fn DspyImageOpen(
                 None => true,
             },
         });
-
-        eprintln!("{:?}", image.denoise);
 
         // Get raw pointer to heap-allocated ImageData struct and pass
         // ownership to image_handle_ptr.
@@ -339,7 +382,7 @@ pub extern "C" fn DspyImageData(
     }
 
     let data_size =
-        (image.channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
+        (image.num_channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
 
     unsafe {
         ptr::copy_nonoverlapping(
@@ -391,50 +434,52 @@ fn add_field_of_views(layer_attributes: &mut LayerAttributes) {
 
 fn write_exr(image: &Box<ImageData>) {
     // -> Result<(), std::boxed::Box<dyn std::error::Error>> {
-    let sample = |position: Vec2<usize>| {
-        let index = image.channels * (position.x() + position.y() * image.width);
+    if let (Some(rgb_index), Some(alpha_index)) = (image.rgb_index, image.alpha_index) {
+        println!("[r-display] writing EXR ...");
 
-        Pixel::rgba(
-            image.data[index],
-            image.data[index + 1],
-            image.data[index + 2],
-            image.data[index + 3],
-        )
-    };
+        let sample = |position: Vec2<usize>| {
+            let index = image.num_channels * (position.x() + position.y() * image.width);
 
-    let mut image_info = ImageInfo::rgba((image.width, image.height), SampleType::F32);
+            Pixel::rgba(
+                image.data[index + rgb_index + 0],
+                image.data[index + rgb_index + 1],
+                image.data[index + rgb_index + 2],
+                image.data[index + alpha_index],
+            )
+        };
 
-    image_info.image_attributes.pixel_aspect = image.pixel_aspect;
+        let mut image_info = ImageInfo::rgba((image.width, image.height), SampleType::F32);
 
-    //image_info.layer_attributes.comments = image.renderer;
+        image_info.image_attributes.pixel_aspect = image.pixel_aspect;
 
-    image_info.layer_attributes.world_to_camera = image.world_to_camera;
-    image_info.layer_attributes.world_to_normalized_device = image.world_to_screen;
+        //image_info.layer_attributes.comments = image.renderer;
 
-    add_field_of_views(&mut image_info.layer_attributes);
+        image_info.layer_attributes.world_to_camera = image.world_to_camera;
+        image_info.layer_attributes.world_to_normalized_device = image.world_to_screen;
 
-    let mut encoding = Encoding::for_compression(image.compression);
+        add_field_of_views(&mut image_info.layer_attributes);
 
-    if let Some(l) = image.line_order {
-        encoding.line_order = l;
+        let mut encoding = Encoding::for_compression(image.compression);
+
+        if let Some(l) = image.line_order {
+            encoding.line_order = l;
+        }
+
+        if let Some(s) = image.tile_size {
+            encoding.tile_size = Some(s);
+        }
+
+        // write it to a file with all cores in parallel
+        image_info
+            .with_encoding(encoding)
+            .write_pixels_to_file(
+                image.file_name.clone(),
+                // this will actually generate the pixels in parallel on all cores
+                write_options::high(),
+                &sample,
+            )
+            .unwrap();
     }
-
-    if let Some(s) = image.tile_size {
-        encoding.tile_size = Some(s);
-    }
-
-    // write it to a file with all cores in parallel
-    image_info
-        .with_encoding(encoding)
-        .write_pixels_to_file(
-            image.file_name.clone(),
-            // this will actually generate the pixels in parallel on all cores
-            write_options::high(),
-            &sample,
-        )
-        .unwrap();
-
-    //    Ok(())ls
 }
 
 #[no_mangle]
@@ -450,7 +495,12 @@ pub extern "C" fn DspyImageDelayClose(
 ) -> ndspy_sys::PtDspyError {
     let image = unsafe { &mut Box::from_raw(image_handle as *mut ImageData) };
 
-    if image.denoise {
+    eprintln!("[r-display] finishing");
+    let mut albedo = Vec::new();
+    let mut normal = Vec::new();
+
+    if let (true, Some(rgb_index)) = (image.denoise, image.rgb_index) {
+        eprintln!("[r-display] denoising");
         let device = oidn::Device::new();
         let mut filter = oidn::RayTracing::new(&device);
         // Optionally add float3 normal and albedo buffers as well
@@ -460,24 +510,61 @@ pub extern "C" fn DspyImageDelayClose(
             // .set_albedo()
             .set_hdr(true);
 
+        if let Some(albedo_index) = image.albedo_index {
+            albedo = image
+                .data
+                .par_chunks(image.num_channels)
+                .flat_map(|chunk| {
+                    vec![
+                        chunk[albedo_index + 0],
+                        chunk[albedo_index + 1],
+                        chunk[albedo_index + 2],
+                    ]
+                })
+                .collect();
+            filter.set_albedo(&albedo);
+
+            // Normal can only be used if albedo is present.
+            if let Some(normal_index) = image.normal_index {
+                normal = image
+                    .data
+                    .par_chunks(image.num_channels)
+                    .flat_map(|chunk| {
+                        vec![
+                            chunk[normal_index + 0],
+                            chunk[normal_index + 1],
+                            chunk[normal_index + 2],
+                        ]
+                    })
+                    .collect();
+                filter.set_normal(&normal);
+            }
+        }
+
         image.unpremultiply();
 
         let rgb: Vec<f32> = image
             .data
-            .chunks(4)
-            .flat_map(|c| c.iter().copied().take(3))
+            .par_chunks(image.num_channels)
+            .flat_map(|chunk| {
+                vec![
+                    chunk[rgb_index + 0],
+                    chunk[rgb_index + 1],
+                    chunk[rgb_index + 2],
+                ]
+            })
             .collect();
 
         let mut denoised_rgb = vec![0.0f32; rgb.len()];
 
         filter
-            .execute(&rgb[..], &mut denoised_rgb[..])
-            .expect("[r-display] Error denoising image.");
+            .execute(&rgb, &mut denoised_rgb)
+            .expect("[r-display] error denoising image");
 
-        let mut image_data_rgba_iter = image.data.chunks_mut(4);
-        denoised_rgb
-            .chunks(3)
-            .for_each(|c| image_data_rgba_iter.next().unwrap()[0..3].copy_from_slice(c));
+        let mut image_data_rgba_iter = image.data.chunks_mut(image.num_channels);
+        denoised_rgb.chunks(3).for_each(|chunk| {
+            image_data_rgba_iter.next().unwrap()[rgb_index..rgb_index + 3].copy_from_slice(chunk)
+        });
 
         if image.premultiply {
             image.premultiply();
@@ -487,12 +574,7 @@ pub extern "C" fn DspyImageDelayClose(
     }
 
     write_exr(&image);
-    /*
-    match write_png(&image) {
-        Ok(_) => ndspy_sys::PtDspyError_PkDspyErrorNone,
-        Err(_) => ndspy_sys::PtDspyError_PkDspyErrorUndefined,
-    }*/
 
-    // image goes out of scope – this will free the memory
+    // image goes out of scope – this will free the memory.
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
