@@ -40,7 +40,14 @@ Build the display driver:
 
 The display driver uses [Intel® Open Image Denoise](https://www.openimagedenoise.org/) to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`int`) parameter to control this. Setting this to **zero** switches denoising *off*.
 
-Using **normal** and **albedo** layers to improve the denoising or denoising additional layers is currently **not supported**. If you need this, ping me.
+If you want to use **albedo** and **normal** (requires the former) layers to improve the denoising you need to add support for outputting `albedo` from your OSL shaders.
+
+For example if `albedo` contains the albedo add sth. like this to your OSL shader:
+```glsl
+if( raytype("camera") )	{
+    outColor += debug( "albedo" ) * albedo;
+}
+```
 
 ## Compression
 
