@@ -1,7 +1,7 @@
 # r-display
 
 [NSI](https://nsi.readthedocs.io/)/[RenderMan®](https://renderman.pixar.com/)
-[OpenEXR](http://www.openexr.com/) display driver written in Rust.
+[OpenEXR](http://www.openexr.com/) display driver with Open Image Denoise support written in Rust.
 
 Build instructions should work for **Linux** and **macOS**. On **Windows** your
 mileage my vary.
@@ -36,20 +36,29 @@ Build the display driver:
 ./build-macos.sh
 ```
 
-## Denoising
+## How To
 
-The display driver uses [Intel® Open Image Denoise](https://www.openimagedenoise.org/) to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`int`) parameter to control this. Setting this to **zero** switches denoising *off*.
+There is an example app in `examples/denoise.rs`. This shows how to add the two optional auxiliary AOVs for albedo & normal when instancing the display driver through the [NSI crate](https://crates.io/crates/nsi).
+
+## Parameters
+
+### Denoising
+
+![Comparispon of denoising results|ɴsɪ](test.jpg)
+
+The display driver uses [Intel® Open Image Denoise](https://www.openimagedenoise.org/) to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`float`) parameter to control this. Setting this to **zero** switches denoising *off*.
+Setting this to a value above *0* and below *1* linearly blends then denoised image with the original.
 
 If you want to use **albedo** and **normal** (requires the former) layers to improve the denoising you need to add support for outputting `albedo` from your OSL shaders.
 
 For example if `albedo` contains the albedo add sth. like this to your OSL shader:
 ```glsl
 if( raytype("camera") )	{
-    outColor += debug( "albedo" ) * albedo;
+    outColor += debug("albedo") * albedo;
 }
 ```
 
-## Compression
+### Compression
 
 This display driver supports the following OpenEXR compression methods which are set by the `compression` (`string`) parameter:
 
@@ -61,7 +70,7 @@ This display driver supports the following OpenEXR compression methods which are
 -   [ ] `b44`, `b44a` not yet supported
 -   [ ] `dwaa`, `dwab` not yet supported
 
-## Other parameters
+### Other
 
 When `premultiply` (`integer`) is set to **zero** the image will be written out *unpremultiplied*.
 
@@ -70,8 +79,3 @@ If unspecified the driver will choose a line order matching the compression.
 
 A `tile_size` (`integer[2]`) parameter can be specified to set the width and hight of the tiles the image is stored in.
 If unspecified the driver will choose a tile size matching the compression.
-
-## Testing
-
-The code in the `python_test` folder requires [3Delight](https://www.3delight.com/)
-to run.
