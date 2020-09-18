@@ -35,8 +35,6 @@ struct ImageData {
     /*
     data_window: [f32; 4],
     display_window: [f32; 4],
-    fov_vertical: f32,
-    fov_horizontal: f32,
     screen_window_center: [f32; 2],
     screen_window_width: f32,*/
     premultiply: bool,
@@ -44,7 +42,7 @@ struct ImageData {
     line_order: Option<LineOrder>,
     tile_size: Option<Vec2<usize>>,
     file_name: String,
-    denoise: bool,
+    denoise: f32,
     //progress: AtomicU16,
     total_pixels: usize,
     finished_pixels: usize,
@@ -160,6 +158,8 @@ pub extern "C" fn DspyImageOpen(
         // Ensure all channels are sent to us as 32bit float.
         format.get_mut(i).unwrap().type_ = ndspy_sys::PkDspyFloat32;
 
+        // FIXME: add support for specifying AOV and detect type
+        // for indexing (.r vs .x)
         let name = unsafe { CStr::from_ptr(format.get(i).unwrap().name) };
 
         if "r" == name.to_string_lossy() {
@@ -179,6 +179,10 @@ pub extern "C" fn DspyImageOpen(
 
     // Shadow C paramater array with wrapped version
     let parameter = unsafe { CVec::new(parameter, parameter_count as usize) };
+
+    parameter
+        .iter()
+        .for_each(|p| eprintln!("{}", unsafe { CStr::from_ptr(p.name) }.to_str().unwrap()));
 
     if output_filename != std::ptr::null() {
         let image = Box::new(ImageData {
@@ -216,9 +220,8 @@ pub extern "C" fn DspyImageOpen(
                 None => None,
             },
 
+            //clipping:
             /*
-            fov_vertical: f32,
-            fov_horizontal: f32,
             screen_window_center: [f32; 2],
             screen_window_width: f32,
                 */
@@ -286,10 +289,11 @@ pub extern "C" fn DspyImageOpen(
                     .to_string()
             },
 
-            denoise: match get_parameter::<u32>("denoise", b'i', 1, &parameter) {
-                Some(b) => b != 0,
-                None => true,
-            },
+            denoise: num::clamp(
+                get_parameter::<f32>("denoise", b'f', 1, &parameter).unwrap_or(1.),
+                0.,
+                1.,
+            ),
 
             //progress: AtomicU16::new(0),
             total_pixels: (width * height) as _,
@@ -392,9 +396,8 @@ pub extern "C" fn DspyImageData(
     // Calculate progress 0..1000.
     // We use this in the artisan render loop to
     // report back to Ae.
-    image.finished_pixels +=
-        ((x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
-    eprintln!("[r-display] {}", (100 * image.finished_pixels) / image.total_pixels);
+    image.finished_pixels += ((x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
+    //eprintln!("[r-display] {}", (100 * image.finished_pixels) / image.total_pixels);
 
     let data_size =
         (image.num_channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
@@ -409,45 +412,40 @@ pub extern "C" fn DspyImageData(
 
     image.offset += data_size as isize;
 
-    // Important: we need to give up ownership of the boxed image or
-    // else the compiler will free the memory on exiting this function.
+    // Give up ownership of the boxed image to
+    // prevent the compiler from freeing it.
     Box::into_raw(image);
 
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
 
 fn add_field_of_views(layer_attributes: &mut LayerAttributes) {
-    if layer_attributes.world_to_camera == None
-        || layer_attributes.world_to_normalized_device == None
-    {
-        return;
+    if let (Some(world_to_camera), Some(world_to_ndc)) = (
+        layer_attributes.world_to_camera,
+        layer_attributes.world_to_normalized_device,
+    ) {
+        let world_to_camera: &cgmath::Matrix4<f32> = (&world_to_camera).into();
+        let world_to_ndc: &cgmath::Matrix4<f32> = (&world_to_ndc).into();
+
+        if world_to_ndc[2][3] == 0. {
+            return;
+        }
+
+        let world_to_ndc_inv = world_to_ndc.invert();
+
+        if None == world_to_ndc_inv {
+            return;
+        }
+
+        let m = world_to_ndc_inv.unwrap() * *world_to_camera;
+        let v = m * cgmath::Vector4::<f32>::new(1., 1., 0., 0.);
+
+        layer_attributes.horizontal_field_of_view = Some(v.x.atan() * 360. / std::f32::consts::PI);
+        layer_attributes.vertical_field_of_view = Some(v.y.atan() * 360. / std::f32::consts::PI);
     }
-
-    let w_to_cam_tmp = layer_attributes.world_to_camera.unwrap();
-    let w_to_ndc_tmp = layer_attributes.world_to_normalized_device.unwrap();
-    let w_to_cam: &cgmath::Matrix4<f32> = (&w_to_cam_tmp).into();
-    let w_to_ndc: &cgmath::Matrix4<f32> = (&w_to_ndc_tmp).into();
-
-    if w_to_ndc[2][3] == 0. {
-        return;
-    }
-
-    let w_to_ndc_inv = w_to_ndc.invert();
-
-    if None == w_to_ndc_inv {
-        return;
-    }
-
-    let m = w_to_ndc_inv.unwrap() * *w_to_cam;
-    let _v = m * cgmath::Vector4::<f32>::new(1., 1., 0., 0.);
-
-    /*layer_attributes.horizontal_field_of_view =
-        v.x.atan() * 360. / std::f32::consts::PI;
-    layer_attributes.vertical_field_of_view =
-        v.y.atan() * 360. / std::f32::consts::PI;*/
 }
 
-fn debug_exr(file_name: &str, data: &Vec<f32>, dimensions: (usize, usize)) {
+fn _debug_exr(file_name: &str, data: &Vec<f32>, dimensions: (usize, usize)) {
     eprintln!("[r-display] writing {}", file_name);
 
     let sample = |position: Vec2<usize>| {
@@ -493,6 +491,13 @@ fn write_exr(image: &Box<ImageData>) {
         image_info.layer_attributes.world_to_camera = image.world_to_camera;
         image_info.layer_attributes.world_to_normalized_device = image.world_to_screen;
 
+        image_info.layer_attributes.near_clip_plane = image.near;
+        image_info.layer_attributes.far_clip_plane = image.far;
+
+        if let Some(renderer) = &image.renderer {
+            image_info.layer_attributes.software_name = exr::meta::attribute::Text::from(renderer);
+        }
+
         add_field_of_views(&mut image_info.layer_attributes);
 
         let mut encoding = Encoding::for_compression(image.compression);
@@ -506,6 +511,7 @@ fn write_exr(image: &Box<ImageData>) {
         // write it to a file with all cores in parallel
         image_info
             .with_encoding(encoding)
+            //.remove_excess()
             .write_pixels_to_file(
                 image.file_name.clone(),
                 // this will actually generate the pixels in parallel on all cores
@@ -524,18 +530,41 @@ pub extern "C" fn DspyImageClose(
 ) -> ndspy_sys::PtDspyError {
     let image = unsafe { &mut Box::from_raw(image_handle as *mut ImageData) };
 
-    eprintln!("[r-display] finishing");
+    let mut albedo = Vec::<f32>::new();
+    let mut normal = Vec::<f32>::new();
 
-    if let (true, Some(rgb_index)) = (image.denoise, image.rgb_index) {
-        let device = oidn::Device::new();
-        let mut filter = oidn::RayTracing::new(&device);
+    //let (true, Some(rgb_index)) = (image.denoise, image.rgb_index) {
 
-        filter
-            .set_img_dims(image.width as usize, image.height as usize)
-            .set_hdr(true);
+    if let Some(rgb_index) = image.rgb_index {
+        if std::f32::EPSILON < image.denoise {
+            let device = oidn::Device::new();
+            let mut filter = oidn::RayTracing::new(&device);
 
-        {
-            let rgb: Vec<f32> = image
+            filter
+                .image_dimensions(image.width as usize, image.height as usize)
+                .hdr(true);
+
+            /*{
+                let rgb: Vec<f32> = image
+                    .data
+                    .par_chunks(image.num_channels)
+                    .flat_map(|chunk| {
+                        vec![
+                            chunk[rgb_index + 0],
+                            chunk[rgb_index + 1],
+                            chunk[rgb_index + 2],
+                        ]
+                    })
+                    .collect();
+
+                let mut original_name = image.file_name.clone();
+                original_name.insert_str(original_name.len() - 4, "_original");
+                debug_exr(&original_name, &rgb, (image.width, image.height));
+            }*/
+
+            image.unpremultiply();
+
+            let mut rgb: Vec<f32> = image
                 .data
                 .par_chunks(image.num_channels)
                 .flat_map(|chunk| {
@@ -547,80 +576,78 @@ pub extern "C" fn DspyImageClose(
                 })
                 .collect();
 
-            let mut original_name = image.file_name.clone();
-            original_name.insert_str(original_name.len() - 4, "_original");
-            debug_exr(&original_name, &rgb, (image.width, image.height));
-        }
-
-        image.unpremultiply();
-
-        let rgb: Vec<f32> = image
-            .data
-            .par_chunks(image.num_channels)
-            .flat_map(|chunk| {
-                vec![
-                    chunk[rgb_index + 0],
-                    chunk[rgb_index + 1],
-                    chunk[rgb_index + 2],
-                ]
-            })
-            .collect();
-
-        let mut denoised_rgb = vec![0.0f32; rgb.len()];
-
-        let denoise_error = "[r-display] error denoising image";
-
-        if let Some(albedo_index) = image.albedo_index {
-            let albedo: Vec<f32> = image
-                .data
-                .par_chunks(image.num_channels)
-                .flat_map(|chunk| {
-                    vec![
-                        chunk[albedo_index + 0],
-                        chunk[albedo_index + 1],
-                        chunk[albedo_index + 2],
-                    ]
-                })
-                .collect();
-
-            // Normal can only be used if albedo is present.
-            if let Some(normal_index) = image.normal_index {
-                let normal: Vec<f32> = image
+            if let Some(albedo_index) = image.albedo_index {
+                albedo = image
                     .data
                     .par_chunks(image.num_channels)
                     .flat_map(|chunk| {
                         vec![
-                            chunk[normal_index + 0],
-                            chunk[normal_index + 1],
-                            chunk[normal_index + 2],
+                            chunk[albedo_index + 0],
+                            chunk[albedo_index + 1],
+                            chunk[albedo_index + 2],
                         ]
                     })
                     .collect();
 
-                eprintln!("[r-display] denoising with albedo & normal");
-                filter
-                    .execute_with_albedo_normal(&rgb, &albedo, &normal, &mut denoised_rgb)
-                    .expect(denoise_error);
-            } else {
-                eprintln!("[r-display] denoising with albedo");
-                filter
-                    .execute_with_albedo(&rgb, &albedo, &mut denoised_rgb)
-                    .expect(denoise_error);
+                // Normal can only be used if albedo is present.
+                if let Some(normal_index) = image.normal_index {
+                    normal = image
+                        .data
+                        .par_chunks(image.num_channels)
+                        .flat_map(|chunk| {
+                            vec![
+                                chunk[normal_index + 0],
+                                chunk[normal_index + 1],
+                                chunk[normal_index + 2],
+                            ]
+                        })
+                        .collect();
+
+                    eprintln!("[r-display] denoising with albedo & normal");
+                    filter.albedo_normal(&albedo, &normal);
+                } else {
+                    eprintln!("[r-display] denoising with albedo");
+                    filter.albedo(&albedo);
+                }
             }
-        } else {
-            eprintln!("[r-display] denoising");
-            filter
-                .execute(&rgb, &mut denoised_rgb)
-                .expect(denoise_error);
-        }
 
-        let mut image_data_rgba_iter = image.data.chunks_mut(image.num_channels);
-        denoised_rgb.chunks(3).for_each(|chunk| {
-            image_data_rgba_iter.next().unwrap()[rgb_index..rgb_index + 3].copy_from_slice(chunk)
-        });
+            if 1.0 <= image.denoise {
+                eprintln!("[r-display] denoising image ...");
+                filter
+                    .filter_in_place(&mut rgb)
+                    .unwrap_or_else(|_| eprintln!("[r-display] error denoising image"));
 
-        if image.premultiply {
-            image.premultiply();
+                let mut image_data_rgba_iter = image.data.chunks_mut(image.num_channels);
+                rgb.chunks(3).for_each(|chunk| {
+                    image_data_rgba_iter.next().unwrap()[rgb_index..rgb_index + 3]
+                        .copy_from_slice(chunk)
+                });
+            } else {
+                eprintln!("[r-display] denoising image & blending ...");
+
+                let mut denoised_rgb = Vec::<f32>::with_capacity(rgb.len());
+                unsafe { denoised_rgb.set_len(rgb.len()) };
+
+                filter
+                    .filter(&rgb, &mut denoised_rgb)
+                    .unwrap_or_else(|_| eprintln!("[r-display] error denoising image"));
+
+                let mut image_data_rgba_iter = image.data.chunks_mut(image.num_channels);
+
+                let blend = image.denoise;
+                let blend_inv = 1. - blend;
+
+                denoised_rgb.chunks(3).for_each(|chunk| {
+                    let pixel = image_data_rgba_iter.next().unwrap();
+                    for i in 0..3 {
+                        pixel[rgb_index + i] = pixel[rgb_index + i] * blend_inv + chunk[i] * blend;
+                    }
+                });
+            }
+
+            if image.premultiply {
+                image.premultiply();
+            }
         }
     } else if !image.premultiply {
         image.unpremultiply();

@@ -48,6 +48,9 @@ There is an example app in `examples/denoise.rs`. This shows how to add the two 
 
 The display driver uses [Intel® Open Image Denoise](https://www.openimagedenoise.org/) to denoise the 1st set of RGB channels. This is **switched on by default**. Use the`denoise` (`float`) parameter to control this. Setting this to **zero** switches denoising *off*.
 Setting this to a value above *0* and below *1* linearly blends then denoised image with the original.
+Setting it to **one** (or above) switches denosing on. This means the original pixels will be discarded and replaced with denoised ones.
+
+If you want support for keeping the original image in a separate layer of the EXR open an issue and I see what can be done.
 
 If you want to use **albedo** and **normal** (requires the former) layers to improve the denoising you need to add support for outputting `albedo` from your OSL shaders.
 
@@ -79,3 +82,23 @@ If unspecified the driver will choose a line order matching the compression.
 
 A `tile_size` (`integer[2]`) parameter can be specified to set the width and hight of the tiles the image is stored in.
 If unspecified the driver will choose a tile size matching the compression.
+
+## Caveats
+
+The display driver needs work if one wanted to use it for multi-layer EXRs (e.g. writing a single EXR that contains a bunch of AOVs as layers).
+
+What would be needed was a way to designate which input layers should be denoised and maybe also a way to filter out utility passes only added
+for the denoiser so they don’t take up disk space.
+
+If you want to use this in production and need those features, ping me.
+
+### Metadata
+
+The display driver exports some metadata that is common to EXR files:
+
+-   [x] `pixel aspect`
+-   [x] `world to camera`
+-   [x] `world to normalized device`
+-   [x] `near clip plane`
+-   [x] `far clip plane`
+-   [x] `software name`

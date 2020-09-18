@@ -3,7 +3,7 @@ use polyhedron_ops as p_ops;
 
 use std::{env, path::PathBuf};
 
-fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
+fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u32) {
     // Setup a camera transform.
     c.create("camera_xform", nsi::NodeType::Transform, &[]);
     c.connect("camera_xform", "", ".root", "objects", &[]);
@@ -26,8 +26,8 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
     c.set_attribute(
         "screen",
         &[
-            nsi::integers!("resolution", &[256, 256]).array_len(2),
-            nsi::integer!("oversampling", 16),
+            nsi::integers!("resolution", &[1024, 1024]).array_len(2),
+            nsi::integer!("oversampling", 1),
         ],
     );
 
@@ -36,7 +36,7 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
         &[
             nsi::integer!("renderatlowpriority", 1),
             nsi::string!("bucketorder", "circle"),
-            nsi::unsigned!("quality.shadingsamples", 4),
+            nsi::unsigned!("quality.shadingsamples", samples),
             nsi::integer!("maximumraydepth.reflection", 6),
         ],
     );
@@ -49,6 +49,8 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
             nsi::string!("variablename", "Ci"),
             nsi::integer!("withalpha", 1),
             nsi::string!("scalarformat", "float"),
+            //nsi::string!("filter", "box"),
+            nsi::double!("filterwidth", 1.),
         ],
     );
     c.connect("beauty", "", "screen", "outputlayers", &[]);
@@ -62,8 +64,8 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
             nsi::string!("variablesource", "shader"),
             nsi::string!("layertype", "color"),
             nsi::string!("scalarformat", "float"),
-            //nsi::string!("filter", "box"),
-            //nsi::double!("filterwidth", 1.),
+            nsi::string!("filter", "box"),
+            nsi::double!("filterwidth", 1.),
         ],
     );
     c.connect("albedo", "", "screen", "outputlayers", &[]);
@@ -77,8 +79,8 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
             nsi::string!("variablesource", "builtin"),
             nsi::string!("layertype", "vector"),
             nsi::string!("scalarformat", "float"),
-            //nsi::string!("filter", "box"),
-            //nsi::double!("filterwidth", 1.),
+            nsi::string!("filter", "box"),
+            nsi::double!("filterwidth", 1.),
         ],
     );
     c.connect("normal", "", "screen", "outputlayers", &[]);
@@ -86,22 +88,20 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16]) {
     // Setup an output driver.
     c.create("driver", nsi::NodeType::OutputDriver, &[]);
     c.connect("driver", "", "beauty", "outputdrivers", &[]);
-    //c.connect("driver", "", "albedo", "outputdrivers", &[]);
-    //c.connect("driver", "", "normal", "outputdrivers", &[]);
+    c.connect("driver", "", "albedo", "outputdrivers", &[]);
+    c.connect("driver", "", "normal", "outputdrivers", &[]);
 
     c.set_attribute(
         "driver",
         &[
             nsi::string!("drivername", "r-display"),
-            nsi::string!("imagefilename", "test_output.exr"),
-            nsi::unsigned!("denoise", 1),
+            nsi::string!("imagefilename", name),
+            nsi::float!("denoise", 1.),
         ],
     );
 
     c.create("driver2", nsi::NodeType::OutputDriver, &[]);
-    //c.connect("driver2", "", "beauty", "outputdrivers", &[]);
     c.connect("driver2", "", "beauty", "outputdrivers", &[]);
-
     c.set_attribute("driver2", &[nsi::string!("drivername", "idisplay")]);
 }
 
@@ -147,21 +147,46 @@ fn nsi_environment(c: &nsi::Context) {
 
 fn nsi_reflective_ground(c: &nsi::Context, _name: &str) {
     if let Ok(path) = &env::var("DELIGHT") {
-        c.create("ground_xform", nsi::NodeType::Transform, &[]);
-        c.connect("ground_xform", "", ".root", "objects", &[]);
+        // Floor.
+        c.create("ground_xform_0", nsi::NodeType::Transform, &[]);
+        c.connect("ground_xform_0", "", ".root", "objects", &[]);
         c.set_attribute(
-            "ground_xform",
+            "ground_xform_0",
             &[nsi::double_matrix!(
                 "transformationmatrix",
                 &[1., 0., 0., 0., 0., 0., -1., 0., 0., 1., 0., 0., 0., -1., 0., 1.,]
             )],
         );
 
-        c.create("ground", nsi::NodeType::Plane, &[]);
-        c.connect("ground", "", "ground_xform", "objects", &[]);
+        c.create("ground_0", nsi::NodeType::Plane, &[]);
+        c.connect("ground_0", "", "ground_xform_0", "objects", &[]);
+
+        /*
+        // Ceiling.
+        c.create("ground_xform_1", nsi::NodeType::Transform, &[]);
+        c.connect("ground_xform_1", "", ".root", "objects", &[]);
+        c.set_attribute(
+            "ground_xform_1",
+            &[nsi::double_matrix!(
+                "transformationmatrix",
+                &[1., 0., 0., 0.,
+                  0., 0., -1., 0.,
+                  0., 1., 0., 0.,
+                  0., 1., 0., 1.,]
+            )],
+        );
+
+        c.create("ground_1", nsi::NodeType::Plane, &[]);
+        c.connect("ground_1", "", "ground_xform_1", "objects", &[]);*/
 
         c.create("ground_attrib", nsi::NodeType::Attributes, &[]);
-        c.connect("ground_attrib", "", "ground", "geometryattributes", &[]);
+        c.set_attribute(
+            "ground_attrib",
+            &[nsi::unsigned!("visibility.camera", false as _)],
+        );
+        c.connect("ground_attrib", "", "ground_0", "geometryattributes", &[]);
+
+        // c.connect("ground_attrib", "", "ground_1", "geometryattributes", &[]);
 
         // Ground shader.
         c.create("ground_shader", nsi::NodeType::Shader, &[]);
@@ -172,19 +197,19 @@ fn nsi_reflective_ground(c: &nsi::Context, _name: &str) {
             &[
                 nsi::string!(
                     "shaderfilename",
-                    //"osl/dlPrincipled"
-                    PathBuf::from(path)
-                        .join("osl")
-                        .join("dlPrincipled")
-                        .to_string_lossy()
-                        .into_owned()
+                    "osl/dlPrincipled" /*PathBuf::from(path)
+                                       .join("osl")
+                                       .join("dlPrincipled")
+                                       .to_string_lossy()
+                                       .into_owned()*/
                 ),
                 nsi::color!("i_color", &[0.001, 0.001, 0.001]),
                 //nsi::arg!("coating_thickness", &0.1f32),
-                nsi::float!("roughness", 0.1),
+                nsi::float!("roughness", 0.2),
                 nsi::float!("specular_level", 1.),
                 nsi::float!("metallic", 1.),
-                nsi::float!("anisotropy", 0.),
+                nsi::float!("anisotropy", 1.),
+                nsi::color!("anisotropy_direction", &[1., 0., 0.]),
                 nsi::float!("sss_weight", 0.),
                 nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
                 nsi::float!("sss_scale", 0.),
@@ -219,27 +244,57 @@ fn nsi_material(c: &nsi::Context, name: &str) {
             &[
                 nsi::string!(
                     "shaderfilename",
-                    //"osl/dlPrincipled"
+                    "osl/dlPrincipled" /*PathBuf::from(path)
+                                       .join("osl")
+                                       .join("dlPrincipled")
+                                       .to_string_lossy()
+                                       .into_owned()*/
+                ),
+                nsi::color!("i_color", &[1., 0.6, 0.3]),
+                //nsi::arg!("coating_thickness", 0.1),
+                nsi::float!("roughness", 0.3),
+                nsi::float!("specular_level", 1.0),
+                nsi::float!("metallic", 1.),
+                nsi::float!("anisotropy", 0.),
+                nsi::float!("sss_weight", 0.),
+                nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
+                nsi::float!("sss_scale", 0.),
+                nsi::color!("incandescence", &[0., 0., 0.]),
+                nsi::float!("incandescence_intensity", 0.),
+                //nsi::color!("incandescence_multiplier", &[1., 1., 1.]),
+            ],
+        );
+
+        /*
+        c.set_attribute(
+            shader_name,
+            &[
+                nsi::string!(
+                    "shaderfilename",
                     PathBuf::from(path)
                         .join("osl")
-                        .join("dlPrincipled")
+                        .join("dlStandard")
                         .to_string_lossy()
                         .into_owned()
                 ),
-                nsi::color!("i_color", &[1.0f32, 0.6, 0.3]),
-                //nsi::arg!("coating_thickness", &0.1f32),
-                nsi::float!("roughness", 0.3f32),
-                nsi::float!("specular_level", 0.5f32),
-                nsi::float!("metallic", 1.0f32),
-                nsi::float!("anisotropy", 0.0f32),
-                nsi::float!("sss_weight", 0.0f32),
-                nsi::color!("sss_color", &[0.5f32, 0.5, 0.5]),
-                nsi::float!("sss_scale", 0.0f32),
-                nsi::color!("incandescence", &[0.0f32, 0.0, 0.0]),
-                nsi::float!("incandescence_intensity", 0.0f32),
+                nsi::float!("base", 0.3),
+                nsi::color!("base_color", &[1., 0.6, 0.3]),
+                //nsi::arg!("coating_thickness", 0.1),
+                //nsi::float!("roughness", 0.),
+                nsi::float!("specular", 0.),
+                nsi::float!("sheen", 1.),
+                nsi::float!("sheen_roughness", 0.8),
+                //nsi::color!("sheen_color", &[1., 0.6, 0.3]),
+                //nsi::float!("metallic", 1.),
+                //nsi::float!("anisotropy", 0.),
+                //nsi::float!("sss_weight", 0.),
+                //nsi::color!("sss_color", &[0.5f32, 0.5, 0.5]),
+                //nsi::float!("sss_scale", 0.0f32),
+                //nsi::color!("incandescence", &[0.0f32, 0.0, 0.0]),
+                //nsi::float!("incandescence_intensity", 0.0f32),
                 //nsi::color!("incandescence_multiplier", &[1.0f32, 1.0, 1.0]),
             ],
-        );
+        );*/
     }
 }
 
@@ -247,6 +302,7 @@ pub fn nsi_render(
     polyhedron: &p_ops::Polyhedron,
     camera_xform: &[f64; 16],
     name: &str,
+    samples: u32,
     cloud_render: bool,
 ) {
     let ctx = {
@@ -261,7 +317,7 @@ pub fn nsi_render(
     }
     .expect("Could not create NSI rendering context.");
 
-    nsi_camera(&ctx, name, camera_xform);
+    nsi_camera(&ctx, name, camera_xform, samples);
 
     nsi_environment(&ctx);
 
@@ -285,5 +341,30 @@ fn main() {
     polyhedron.kis(-0.2, None, true, true);
     polyhedron.normalize();
 
-    nsi_render(&polyhedron, &[0.0f64; 16], "foo", false);
+    println!("1");
+    nsi_render(&polyhedron, &[0.0f64; 16], "test_0001samples.exr", 1, false);
+    /*println!("256");
+    nsi_render(
+        &polyhedron,
+        &[0.0f64; 16],
+        "test_0256samples.exr",
+        256,
+        true,
+    );
+    println!("2048");*/
+    /*nsi_render(
+        &polyhedron,
+        &[0.0f64; 16],
+        "test_2048samples.exr",
+        2048,
+        true,
+    );
+    println!("4096");
+    nsi_render(
+        &polyhedron,
+        &[0.0f64; 16],
+        "test_4096samples.exr",
+        4096,
+        true,
+    );*/
 }
