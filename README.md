@@ -22,7 +22,7 @@ Unpack this somewhere.
 Export the OIDN location for the build to find the headers & libraries. For
 example:
 ```
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.2.x86_64.linux/
 ```
 
 Build the display driver:
@@ -35,7 +35,7 @@ Build the display driver:
 Export the OIDN location for the build to find the headers & libraries. For
 example:
 ```
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.2.x86_64.macos/
 ```
 
 Build the display driver:
