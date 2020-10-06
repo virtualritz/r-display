@@ -8,11 +8,6 @@ mileage my vary.
 
 ## Building
 
-The [`ndspy-sys`](https://github.com/virtualritz/r-display/blob/master/ndspy-sys/)
-crate which is part of this project uses the `DELIGHT` environment variable
-to find the needed display driver API headers. If you have 3Delight installed
-this will *just* work.
-
 You need a copy of Intel® Open Image Denoise (IOID). Grab a package from
 their [download section](https://www.openimagedenoise.org/downloads.html).
 Unpack this somewhere.
@@ -22,7 +17,7 @@ Unpack this somewhere.
 Export the OIDN location for the build to find the headers & libraries. For
 example:
 ```
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.macos/
 ```
 
 Build the display driver:
@@ -35,7 +30,7 @@ Build the display driver:
 Export the OIDN location for the build to find the headers & libraries. For
 example:
 ```
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.1.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.macos/
 ```
 
 Build the display driver:
@@ -48,6 +43,9 @@ Build the display driver:
 There is an example app in `examples/denoise.rs`. This shows how to add the two
 optional auxiliary AOVs for albedo & normal when instancing the display driver
 through the [NSI crate](https://crates.io/crates/nsi).
+
+For this to work you need to download & install a
+[3Delight](https://www.3delight.com/) package for your platform.
 
 ```shell
 cargo run --example denoise

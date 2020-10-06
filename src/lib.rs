@@ -7,6 +7,7 @@ use exr::prelude::rgba_image::*;
 use ndspy_sys;
 use rayon::prelude::*;
 use std::{
+    collections::HashMap,
     ffi::CStr,
     mem,
     os::raw::{c_char, c_int, c_void},
@@ -82,7 +83,44 @@ impl ImageData {
     }
 }
 
-type Type = u8;
+#[derive(Debug, Hash, Eq, PartialEq)]
+enum CParameter {
+    Integer(i32),
+    IntegerArray(CVec<i32>),
+    Float(f32),
+    FloatArray(CVec<f32>),
+    String(String),
+    StringArray(Vec<CStr>),
+}
+
+impl From<CParameter> for u8 {
+    fn from(parameter_type: CParameter) -> Self {
+        match parameter_type {
+            CParameter::Integer(_) | CParameter::IntegerArray(_) => b'i',
+            CParameter::Float(_) | CParameter::FloatArray(_) => b'f',
+            CParameter::String(_) | CParameter::StringArray(_) => b's',
+        }
+    }
+}
+
+enum ParameterType {
+    Integer,
+    Float,
+    String,
+}
+
+struct CParameterList {
+    parameter: Box<HashMap<CStr, CParameter>>,
+}
+
+impl CParameterList {
+    pub fn get(&self, name: &str, type_: Option<CParameter>) -> Option<CParameter> {
+        match self.parameter.get(name) {
+            Some(parameter) => Some(parameter),
+            None => None,
+        }
+    }
+}
 
 /// A utility function to get user parameters.
 ///
@@ -102,28 +140,65 @@ type Type = u8;
 /// let associate_alpha =
 ///     1 == get_parameter::<i32>("associatealpha", _parameter_count, _parameter).unwrap_or(0);
 /// ```
-pub fn get_parameter<T: Copy>(
-    name: &str,
-    type_: Type,
-    len: usize,
-    parameter: &c_vec::CVec<ndspy_sys::UserParameter>,
-) -> Option<T> {
-    for p in parameter.iter() {
-        let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
-
-        if name == p_name && type_ == p.valueType as u8 && len == p.valueCount as usize {
-            let value_ptr = p.value as *const T;
-
-            if value_ptr != ptr::null() {
-                return Some(unsafe { *value_ptr });
-            } else {
-                // Value is missing, exit quietly.
-                break;
-            }
-        }
+pub fn get_parameter_list(parameter: &c_vec::CVec<ndspy_sys::UserParameter>) -> CParameterList {
+    CParameterList {
+        parameter: Box::new(
+            parameter
+            .iter()
+            .filter(|p| !p.value.is_null() && (b'i', b'f', b's').contains(p.valueType))
+            .map(|p| {
+                (
+                    CStr::from_ptr(p.name),
+                    match p.valueType as u8 {
+                        b'i' => {
+                            if 1 == p.valueCount {
+                                return Some(CParameter::Integer(unsafe {
+                                    *(p.value as *const i32)
+                                }));
+                            } else {
+                                return Some(CParameter::IntegerArray(CVec::new(
+                                    p.value as *const i32,
+                                    p.valueCount as _,
+                                )));
+                            }
+                        }
+                        b'f' => {
+                            if 1 == p.valueCount {
+                                return Some(CParameter::Integer(unsafe {
+                                    *(p.value as *const f32)
+                                }));
+                            } else {
+                                return Some(CParameter::Integer(CVec::new(
+                                    p.value as *const f32,
+                                    p.valueCount as _,
+                                )));
+                            }
+                        }
+                        b's' => {
+                            if 1 == p.valueCount {
+                                return Some(CParameter::String(CStr::from_ptr(unsafe {
+                                    *(p.value as *const *const std::os::raw::c_char)
+                                })));
+                            } else {
+                                return Some(CParameter::StringArray(
+                                    (0..p.valueCount)
+                                        .iter()
+                                        .for_each(|i| {
+                                            CStr::from_ptr(unsafe {
+                                                **(p.value as *const *const *const std::os::raw::c_char)
+                                                    .offset(i as _)
+                                            })
+                                        })
+                                        .collect::<Vec<_>>(),
+                                ));
+                            }
+                        }
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>()
+        )
     }
-
-    None
 }
 
 #[no_mangle]
@@ -171,34 +246,33 @@ pub extern "C" fn DspyImageOpen(
         } else if "N_world.000.x" == name.to_string_lossy() {
             normal_index = Some(i);
         }
-        /*
-        eprintln!("[r-display] {:?}", unsafe {
-            CStr::from_ptr(format.get(i).unwrap().name)
-        });*/
     }
 
     // Shadow C paramater array with wrapped version
-    let parameter = unsafe { CVec::new(parameter, parameter_count as usize) };
+    parameter = get_parameter_list(unsafe { CVec::new(parameter, parameter_count as _) });
 
+    println!("{:?}", parameter);
+    println!("{:?}", parameter.get("denoise", CParameter::Float(())));
+    /*
     parameter
         .iter()
         .for_each(|p| eprintln!("{}", unsafe { CStr::from_ptr(p.name) }.to_str().unwrap()));
+    */
 
     if output_filename != std::ptr::null() {
         let image = Box::new(ImageData {
-            data: vec![0.0f32; (width * height * format_count) as usize],
+            data: vec![0.0f32; (width * height * format_count) as _],
             offset: 0,
 
-            width: width as usize,
-            height: height as usize,
-            pixel_aspect: get_parameter::<f32>("PixelAspectRatio", b'f', 1, &parameter)
-                .unwrap_or(1.0f32),
+            width: width as _,
+            height: height as _,
+            pixel_aspect: 1.0, //get_parameter::<f32>("PixelAspectRatio", Type::Float, 1, &parameter).unwrap_or(1.0f32),
 
-            world_to_screen: get_parameter::<[f32; 16]>("NP", b'f', 16, &parameter),
-            world_to_camera: get_parameter::<[f32; 16]>("Nl", b'f', 16, &parameter),
+            world_to_screen: None, // get_parameter::<[f32; 16]>("NP", Type::Float, 16, &parameter),
+            world_to_camera: None, // get_parameter::<[f32; 16]>("Nl", Type::Float, 16, &parameter),
 
-            near: get_parameter::<f32>("near", b'f', 1, &parameter),
-            far: get_parameter::<f32>("far", b'f', 1, &parameter),
+            near: None, // get_parameter::<f32>("near", Type::Float, 1, &parameter),
+            far: None,  // get_parameter::<f32>("far", Type::Float, 1, &parameter),
 
             num_channels,
             alpha_index,
@@ -206,81 +280,84 @@ pub extern "C" fn DspyImageOpen(
             albedo_index,
             normal_index,
 
-            renderer: match get_parameter::<*const std::os::raw::c_char>(
-                "Software", b's', 1, &parameter,
-            ) {
-                Some(c_str_ptr) => Some(
-                    unsafe { CStr::from_ptr(c_str_ptr) }
-                        .to_string_lossy()
-                        .into_owned()
-                        .as_str()
-                        .try_into()
-                        .unwrap(),
-                ),
-                None => None,
-            },
+            renderer: None, /*match get_parameter::<*const std::os::raw::c_char>(
+                                "Software",
+                                Type::String,
+                                1,
+                                &parameter,
+                            ) {
+                                Some(c_str_ptr) => Some(
+                                    unsafe { CStr::from_ptr(c_str_ptr) }
+                                        .to_string_lossy()
+                                        .into_owned()
+                                        .as_str()
+                                        .try_into()
+                                        .unwrap(),
+                                ),
+                                None => None,
+                            },*/
 
             //clipping:
             /*
             screen_window_center: [f32; 2],
             screen_window_width: f32,
                 */
-            premultiply: match get_parameter::<u32>("premultiply", b'i', 1, &parameter) {
-                Some(b) => b != 0,
-                None => true,
-            },
+            premultiply: false, /*match get_parameter::<u32>("premultiply", b'i', 1, &parameter) {
+                                    Some(b) => b != 0,
+                                    None => true,
+                                },*/
 
-            compression: match get_parameter::<*const std::os::raw::c_char>(
-                "compression",
-                b's',
-                1,
-                &parameter,
-            ) {
-                None => Compression::ZIP16,
-                Some(c_str_ptr) => {
-                    match unsafe { CStr::from_ptr(c_str_ptr) }
-                        .to_string_lossy()
-                        .to_ascii_lowercase()
-                        .as_str()
-                    {
-                        "none" => Compression::Uncompressed,
-                        "rle" => Compression::RLE,
-                        "piz" => Compression::PIZ,
-                        "pxr24" => Compression::PXR24,
-                        "zip" => Compression::ZIP16,
-                        _ => {
-                            eprintln!("[r-display] selected compression is not supported; reverting to 'zip'");
-                            Compression::ZIP16
-                        }
-                    }
-                }
-            },
+            compression: Compression::Uncompressed, /*match get_parameter::<*const std::os::raw::c_char>(
+                                                        "compression",
+                                                        b's',
+                                                        1,
+                                                        &parameter,
+                                                    ) {
+                                                        None => Compression::ZIP16,
+                                                        Some(c_str_ptr) => {
+                                                            match unsafe { CStr::from_ptr(c_str_ptr) }
+                                                                .to_string_lossy()
+                                                                .to_ascii_lowercase()
+                                                                .as_str()
+                                                            {
+                                                                "none" => Compression::Uncompressed,
+                                                                "rle" => Compression::RLE,
+                                                                "piz" => Compression::PIZ,
+                                                                "pxr24" => Compression::PXR24,
+                                                                "zip" => Compression::ZIP16,
+                                                                _ => {
+                                                                    eprintln!("[r-display] selected compression is not supported; reverting to 'zip'");
+                                                                    Compression::ZIP16
+                                                                }
+                                                            }
+                                                        }
+                                                    },*/
 
-            line_order: match get_parameter::<*const std::os::raw::c_char>(
-                "line_order",
-                b's',
-                1,
-                &parameter,
-            ) {
-                None => None,
-                Some(c_str_ptr) => match unsafe { CStr::from_ptr(c_str_ptr) }
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .as_str()
-                {
-                    "increasing" => Some(LineOrder::Increasing),
-                    "decreasing" => Some(LineOrder::Decreasing),
-                    _ => {
-                        eprintln!("[r-display] selected line_order is not supported; ignoring");
-                        None
-                    }
-                },
-            },
+            line_order: Some(LineOrder::Increasing), /* match get_parameter::<*const std::os::raw::c_char>(
+                                                         "line_order",
+                                                         b's',
+                                                         1,
+                                                         &parameter,
+                                                     ) {
+                                                         None => None,
+                                                         Some(c_str_ptr) => match unsafe { CStr::from_ptr(c_str_ptr) }
+                                                             .to_string_lossy()
+                                                             .to_ascii_lowercase()
+                                                             .as_str()
+                                                         {
+                                                             "increasing" => Some(LineOrder::Increasing),
+                                                             "decreasing" => Some(LineOrder::Decreasing),
+                                                             _ => {
+                                                                 eprintln!("[r-display] selected line_order is not supported; ignoring");
+                                                                 None
+                                                             }
+                                                         },
+                                                     },*/
 
-            tile_size: match get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter) {
-                None => None,
-                Some(t) => Some(Vec2::from((t[0] as usize, t[1] as usize))),
-            },
+            tile_size: None, /*match get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter) {
+                                 None => None,
+                                 Some(t) => Some(Vec2::from((t[0] as _, t[1] as _))),
+                             },*/
 
             file_name: unsafe {
                 CStr::from_ptr(output_filename)
@@ -289,11 +366,11 @@ pub extern "C" fn DspyImageOpen(
                     .to_string()
             },
 
-            denoise: num::clamp(
-                get_parameter::<f32>("denoise", b'f', 1, &parameter).unwrap_or(1.),
-                0.,
-                1.,
-            ),
+            denoise: 1.0, /*num::clamp(
+                              get_parameter::<f32>("denoise", b'f', 1, &parameter).unwrap_or(1.),
+                              0.,
+                              1.,
+                          ),*/
 
             //progress: AtomicU16::new(0),
             total_pixels: (width * height) as _,
@@ -307,7 +384,7 @@ pub extern "C" fn DspyImageOpen(
         }
 
         unsafe {
-            (*flag_stuff).flags |= ndspy_sys::PkDspyFlagsWantsScanLineOrder as i32;
+            (*flag_stuff).flags |= ndspy_sys::PkDspyFlagsWantsScanLineOrder as _;
         }
 
         ndspy_sys::PtDspyError_PkDspyErrorNone
@@ -344,14 +421,14 @@ pub extern "C" fn DspyImageQuery(
                     let image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
                     ndspy_sys::PtDspySizeInfo {
-                        width: image.width as u64,
-                        height: image.height as u64,
+                        width: image.width as _,
+                        height: image.height as _,
                         aspectRatio: image.pixel_aspect,
                     }
                 }
             });
 
-            debug_assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
+            debug_assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as _);
 
             // Transfer ownership of the size_query heap object to the
             // data pointer.
@@ -396,11 +473,11 @@ pub extern "C" fn DspyImageData(
     // Calculate progress 0..1000.
     // We use this in the artisan render loop to
     // report back to Ae.
-    image.finished_pixels += ((x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
+    image.finished_pixels += ((x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as _;
     //eprintln!("[r-display] {}", (100 * image.finished_pixels) / image.total_pixels);
 
     let data_size =
-        (image.num_channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
+        (image.num_channels as _ * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as _;
 
     unsafe {
         ptr::copy_nonoverlapping(
@@ -410,7 +487,7 @@ pub extern "C" fn DspyImageData(
         );
     }
 
-    image.offset += data_size as isize;
+    image.offset += data_size as _;
 
     // Give up ownership of the boxed image to
     // prevent the compiler from freeing it.
