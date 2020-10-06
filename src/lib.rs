@@ -111,7 +111,7 @@ pub fn get_parameter<T: Copy>(
     for p in parameter.iter() {
         let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
 
-        if name == p_name && type_ == p.valueType as u8 && len == p.valueCount as usize {
+        if name == p_name && type_ == p.valueType as _ && len == p.valueCount as _ {
             let value_ptr = p.value as *const T;
 
             if value_ptr != ptr::null() {
@@ -144,7 +144,7 @@ pub extern "C" fn DspyImageOpen(
     }
     eprintln!("[r-display] open");
     // Shadow C.
-    let mut format = unsafe { CVec::new(format, format_count as usize) };
+    let mut format = unsafe { CVec::new(format, format_count as _) };
 
     let num_channels = format.len();
 
@@ -178,7 +178,7 @@ pub extern "C" fn DspyImageOpen(
     }
 
     // Shadow C paramater array with wrapped version
-    let parameter = unsafe { CVec::new(parameter, parameter_count as usize) };
+    let parameter = unsafe { CVec::new(parameter, parameter_count as _) };
 
     parameter
         .iter()
@@ -186,11 +186,11 @@ pub extern "C" fn DspyImageOpen(
 
     if output_filename != std::ptr::null() {
         let image = Box::new(ImageData {
-            data: vec![0.0f32; (width * height * format_count) as usize],
+            data: vec![0.0f32; (width * height * format_count) as _],
             offset: 0,
 
-            width: width as usize,
-            height: height as usize,
+            width: width as _,
+            height: height as _,
             pixel_aspect: get_parameter::<f32>("PixelAspectRatio", b'f', 1, &parameter)
                 .unwrap_or(1.0f32),
 
@@ -279,7 +279,7 @@ pub extern "C" fn DspyImageOpen(
 
             tile_size: match get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter) {
                 None => None,
-                Some(t) => Some(Vec2::from((t[0] as usize, t[1] as usize))),
+                Some(t) => Some(Vec2::from((t[0] as _, t[1] as _))),
             },
 
             file_name: unsafe {
@@ -351,7 +351,7 @@ pub extern "C" fn DspyImageQuery(
                 }
             });
 
-            debug_assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as usize);
+            debug_assert!(mem::size_of::<ndspy_sys::PtDspySizeInfo>() <= data_len as _);
 
             // Transfer ownership of the size_query heap object to the
             // data pointer.
@@ -400,7 +400,7 @@ pub extern "C" fn DspyImageData(
     //eprintln!("[r-display] {}", (100 * image.finished_pixels) / image.total_pixels);
 
     let data_size =
-        (image.num_channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as usize;
+        (image.num_channels as i32 * (x_max_plus_one - x_min) * (y_max_plus_one - y_min)) as _;
 
     unsafe {
         ptr::copy_nonoverlapping(
@@ -541,7 +541,7 @@ pub extern "C" fn DspyImageClose(
             let mut filter = oidn::RayTracing::new(&device);
 
             filter
-                .image_dimensions(image.width as usize, image.height as usize)
+                .image_dimensions(image.width as _, image.height as _)
                 .hdr(true);
 
             /*{
