@@ -344,8 +344,8 @@ pub extern "C" fn DspyImageQuery(
                     let image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
 
                     ndspy_sys::PtDspySizeInfo {
-                        width: image.width as u64,
-                        height: image.height as u64,
+                        width: image.width as _,
+                        height: image.height as _,
                         aspectRatio: image.pixel_aspect,
                     }
                 }
