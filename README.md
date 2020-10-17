@@ -60,7 +60,7 @@ Build the display driver:
 cargo build --release
 ```
 
-### Detailed (For Non-Technical Peeps)
+#### Detailed (For Non-Technical Peeps)
 
 You need to have PowerShell 2 or later installed. To install it click
 the lower left corner Windows icon and start typing `PowerShell`.
