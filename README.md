@@ -17,7 +17,7 @@ Unpack this somewhere.
 Export the OIDN location for the build to find the headers & libraries. For
 example:
 ```
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.linux/
 ```
 
 Build the display driver:
@@ -51,7 +51,7 @@ For this to work you need to download & install a
 cargo run --example denoise
 ```
 
-This will launch the render an dump the raw data of a render with *one* sample
+This will launch the render and dump the raw data of a render with *one* sample
 per pixel to 3Delight Display. It will save a denoised version to
 `test_0001samples.exr`.
 
