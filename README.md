@@ -69,46 +69,46 @@ manager that will make installing the rest of the stuff you need painless.
 
 Open PowerShell and follow the instructions.
 
-#. Install `git`:
+1. Install `git`:
 ```powershell
 choco install git
 ```
-#. Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/ru/visual-cpp-build-tools/):
+1. Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/ru/visual-cpp-build-tools/):
 ```powershell
 choco install visualcpp-build-tools
 ```
-#. Install [Rust](https://www.rust-lang.org/):
+1. Install [Rust](https://www.rust-lang.org/):
 ```powershell
 choco install rust-ms
 ```
-#. Install [LLVM](https://llvm.org/):
+1. Install [LLVM](https://llvm.org/):
 ```powershell
 choco install llvm
 ```
-#. Set the LLVM location:
+1. Set the LLVM location:
 ```powershell
 $Env:LIBCLANG_PATH = "C:\ProgramData\Chocolatey\bin"
 ```
-#. Set the OIDN location you choose [above](##Building). For example:
+1. Set the OIDN location you choose [above](##Building). For example:
 ```powershell
 $Env:IDN_DIR = "C:\Downloads\oidn-1.2.4.x64.vc14.windows\oidn-1.2.4.x64.vc14.windows"
 ```
-#. Create some folder to host the repository during build and change to
+1. Create some folder to host the repository during build and change to
 there. Note that you can delete this later.
 ```powershell
 md -Path "C:\MyProjects"
 cd "C:\MyProjects"
 ```
-#. Clone the r-display repository cand hop into it:
+1. Clone the r-display repository cand hop into it:
 ```powershell
 git clone https://github.com/virtualritz/r-display
 cd r-display
 ```
-Build the display driver:
+1. Build the display driver:
 ```powershell
 cargo build --release
 ```
-#. Copy the result to the 3Delight display folder:
+1. Copy the result to the 3Delight display folder:
 ```powershell
 cp target\release\r-display.dll $Env:DELIGHT\displays
 ```
