@@ -146,7 +146,7 @@ Use the`denoise` (`float`) parameter to control this.
 
 Setting this to **zero** switches denoising *off*.
 
-Setting this to a value above *0* and below *1* linearly blends then
+Setting this to a value above *0* and below *1* linearly blends the
 denoised image with the original.
 
 Setting it to **one** (or above) switches denosing on. This means the
