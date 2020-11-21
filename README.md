@@ -91,7 +91,7 @@ Open PowerShell and follow the instructions.
     ```
 6. Set the OIDN location you choose [above](##Building). For example:
     ```powershell
-    $Env:IDN_DIR = "C:\Downloads\oidn-1.2.4.x64.vc14.windows\oidn-1.2.4.x64.vc14.windows"
+    $Env:OIDN_DIR = "C:\Downloads\oidn-1.2.4.x64.vc14.windows\oidn-1.2.4.x64.vc14.windows"
     ```
 7. Create some folder to host the repository during build and change to
     there. Note that you can delete this later.
@@ -146,7 +146,7 @@ Use the`denoise` (`float`) parameter to control this.
 
 Setting this to **zero** switches denoising *off*.
 
-Setting this to a value above *0* and below *1* linearly blends then
+Setting this to a value above *0* and below *1* linearly blends the
 denoised image with the original.
 
 Setting it to **one** (or above) switches denosing on. This means the
