@@ -1,8 +1,6 @@
-cargo-features = ["strip"]
-
 [package]
 name = "r-display"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Moritz Moeller <virtualritz@protonmail.com>"]
 edition = "2018"
 
@@ -11,23 +9,21 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cgmath = "0.17.0"
-c_vec = "2.0.0"
 exr = "0.9.0"
-ndspy-sys = "0.1.5"
-num = "0.3.0"
-oidn = { git = "https://github.com/virtualritz/oidn-rs" } # path = "../oidn-rs"
-rayon = "1.4.1"
+ndspy-sys = "0.1.6"
+num = "0.3.1"
+oidn = "1.3.0" # git = "https://github.com/virtualritz/oidn-rs" }
+rayon = "1.5.0"
 
 [dev-dependencies]
-nsi = "0.5.4"
-polyhedron-ops = { git = "https://github.com/virtualritz/polyhedron-operators"  } # path = "../polyhedron-ops"
+nsi = "0.5.5"
+polyhedron-ops = "0.1.2"  # git = "https://github.com/virtualritz/polyhedron-operators"
 
 [profile.release]
 rpath = false
 lto = "on"
 opt-level = 3
 codegen-units = 1
-strip = "symbols"
 panic = "abort"
 
 [profile.dev]

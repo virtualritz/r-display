@@ -97,6 +97,7 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u
             nsi::string!("drivername", "r-display"),
             nsi::string!("imagefilename", name),
             nsi::float!("denoise", 1.),
+            nsi::unsigned!("associatealpha", 0),
         ],
     );
 
@@ -334,11 +335,11 @@ pub fn nsi_render(
 
 fn main() {
     let mut polyhedron = p_ops::Polyhedron::tetrahedron();
-    polyhedron.meta(true);
+    polyhedron.meta(None, None, None, false, true);
     polyhedron.normalize();
-    polyhedron.gyro(1. / 3., 0.1, true);
+    polyhedron.gyro(Some(1. / 3.), Some(0.1), true);
     polyhedron.normalize();
-    polyhedron.kis(-0.2, None, true, true);
+    polyhedron.kis(Some(-0.2), None, true, true);
     polyhedron.normalize();
 
     println!("1");

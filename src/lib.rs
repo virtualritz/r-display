@@ -1,7 +1,6 @@
 #![allow(unused_assignments)]
 
 extern crate exr;
-use c_vec::CVec;
 use cgmath::prelude::*;
 use exr::prelude::rgba_image::*;
 use ndspy_sys;
@@ -11,7 +10,6 @@ use std::{
     mem,
     os::raw::{c_char, c_int, c_void},
     ptr,
-    //sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
 
 #[repr(C)]
@@ -43,7 +41,6 @@ struct ImageData {
     tile_size: Option<Vec2<usize>>,
     file_name: String,
     denoise: f32,
-    //progress: AtomicU16,
     total_pixels: usize,
     finished_pixels: usize,
 }
@@ -91,31 +88,30 @@ type Type = u8;
 /// # Arguments
 ///
 /// * `name` - A string slice that holds the name of the parameter we
-///   are searching for
-/// * `parameter_count` - Number of parameters
-/// * `parameter`       - Array of `ndspy_sys::UserParameter` structs to
-///   search
+///    are searching for
+/// * `type` - Tyoe of parameter
+/// * `len` - length in case this is an array (1 otherwise)
+/// * `parameter` - Slice of `ndspy_sys::UserParameter` structs to
+///    search
 ///
 /// # Example
 ///
 /// ```
-/// let associate_alpha =
-///     1 == get_parameter::<i32>("associatealpha", _parameter_count, _parameter).unwrap_or(0);
+/// let associate_alpha: bool =
+///     1 == get_parameter::<i32>("associatealpha", parameter_count, parameter).unwrap_or(0);
 /// ```
 pub fn get_parameter<T: Copy>(
     name: &str,
     type_: Type,
     len: usize,
-    parameter: &c_vec::CVec<ndspy_sys::UserParameter>,
+    parameter: &[ndspy_sys::UserParameter],
 ) -> Option<T> {
     for p in parameter.iter() {
         let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
 
         if name == p_name && type_ == p.valueType as _ && len == p.valueCount as _ {
-            let value_ptr = p.value as *const T;
-
-            if value_ptr != ptr::null() {
-                return Some(unsafe { *value_ptr });
+            if p.value != ptr::null() {
+                return Some(unsafe { *(p.value as *const T) });
             } else {
                 // Value is missing, exit quietly.
                 break;
@@ -142,11 +138,11 @@ pub extern "C" fn DspyImageOpen(
     if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
+    /*
     eprintln!("[r-display] open");
-    // Shadow C.
-    let mut format = unsafe { CVec::new(format, format_count as _) };
+    */
 
-    let num_channels = format.len();
+    let format = unsafe { std::slice::from_raw_parts_mut(format, format_count as _) };
 
     let mut alpha_index = None;
     let mut rgb_index = None;
@@ -154,13 +150,15 @@ pub extern "C" fn DspyImageOpen(
     let mut normal_index = None;
 
     // This loops through each format (channel), r, g, b, a etc.
-    for i in 0..num_channels {
+    format.iter_mut().enumerate().for_each(|format| {
         // Ensure all channels are sent to us as 32bit float.
-        format.get_mut(i).unwrap().type_ = ndspy_sys::PkDspyFloat32;
+        format.1.type_ = ndspy_sys::PkDspyFloat32;
 
         // FIXME: add support for specifying AOV and detect type
         // for indexing (.r vs .x)
-        let name = unsafe { CStr::from_ptr(format.get(i).unwrap().name) };
+        let name = unsafe { CStr::from_ptr(format.1.name) };
+
+        let i = format.0;
 
         if "r" == name.to_string_lossy() {
             rgb_index = Some(i);
@@ -171,18 +169,21 @@ pub extern "C" fn DspyImageOpen(
         } else if "N_world.000.x" == name.to_string_lossy() {
             normal_index = Some(i);
         }
+
         /*
         eprintln!("[r-display] {:?}", unsafe {
-            CStr::from_ptr(format.get(i).unwrap().name)
-        });*/
-    }
+            CStr::from_ptr(format.1.name)
+        });
+        */
+    });
 
-    // Shadow C paramater array with wrapped version
-    let parameter = unsafe { CVec::new(parameter, parameter_count as _) };
+    let parameter = unsafe { std::slice::from_raw_parts(parameter, parameter_count as _) };
 
+    /*
     parameter
         .iter()
         .for_each(|p| eprintln!("{}", unsafe { CStr::from_ptr(p.name) }.to_str().unwrap()));
+    */
 
     if output_filename != std::ptr::null() {
         let image = Box::new(ImageData {
@@ -200,7 +201,7 @@ pub extern "C" fn DspyImageOpen(
             near: get_parameter::<f32>("near", b'f', 1, &parameter),
             far: get_parameter::<f32>("far", b'f', 1, &parameter),
 
-            num_channels,
+            num_channels: format_count as _,
             alpha_index,
             rgb_index,
             albedo_index,
@@ -307,7 +308,7 @@ pub extern "C" fn DspyImageOpen(
         }
 
         unsafe {
-            (*flag_stuff).flags |= ndspy_sys::PkDspyFlagsWantsScanLineOrder as i32;
+            (*flag_stuff).flags = ndspy_sys::PkDspyFlagsWantsScanLineOrder as _;
         }
 
         ndspy_sys::PtDspyError_PkDspyErrorNone
@@ -391,7 +392,7 @@ pub extern "C" fn DspyImageData(
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
-    let mut image = unsafe { Box::from_raw(image_handle as *mut ImageData) };
+    let mut image = unsafe { &mut *(image_handle as *mut ImageData) };
 
     // Calculate progress 0..1000.
     // We use this in the artisan render loop to
@@ -411,10 +412,6 @@ pub extern "C" fn DspyImageData(
     }
 
     image.offset += data_size as isize;
-
-    // Give up ownership of the boxed image to
-    // prevent the compiler from freeing it.
-    Box::into_raw(image);
 
     ndspy_sys::PtDspyError_PkDspyErrorNone
 }
