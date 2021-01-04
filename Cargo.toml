@@ -8,7 +8,7 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-cgmath = "0.17.0"
+cgmath = "0.18.0"
 exr = "0.9.0"
 ndspy-sys = "0.1.6"
 num = "0.3.1"
