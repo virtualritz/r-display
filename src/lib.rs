@@ -1,9 +1,7 @@
 #![allow(unused_assignments)]
-
-extern crate exr;
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 use cgmath::prelude::*;
 use exr::prelude::rgba_image::*;
-use ndspy_sys;
 use rayon::prelude::*;
 use std::{
     ffi::CStr,
@@ -55,7 +53,7 @@ impl ImageData {
                 .filter(|chunk| chunk[alpha_index] != 0.0f32)
                 .for_each(|chunk| {
                     let inv_alpha = 1. / chunk[alpha_index];
-                    chunk[rgb_index + 0] *= inv_alpha;
+                    chunk[rgb_index] *= inv_alpha;
                     chunk[rgb_index + 1] *= inv_alpha;
                     chunk[rgb_index + 2] *= inv_alpha;
                 });
@@ -71,7 +69,7 @@ impl ImageData {
                 // premultiplication can make disappear.
                 .for_each(|chunk| {
                     let alpha = chunk[alpha_index];
-                    chunk[rgb_index + 0] *= alpha;
+                    chunk[rgb_index] *= alpha;
                     chunk[rgb_index + 1] *= alpha;
                     chunk[rgb_index + 2] *= alpha;
                 });
@@ -110,7 +108,7 @@ pub fn get_parameter<T: Copy>(
         let p_name = unsafe { CStr::from_ptr(p.name) }.to_str().unwrap();
 
         if name == p_name && type_ == p.valueType as _ && len == p.valueCount as _ {
-            if p.value != ptr::null() {
+            if !p.value.is_null() {
                 return Some(unsafe { *(p.value as *const T) });
             } else {
                 // Value is missing, exit quietly.
@@ -135,7 +133,7 @@ pub extern "C" fn DspyImageOpen(
     format: *mut ndspy_sys::PtDspyDevFormat,
     flag_stuff: *mut ndspy_sys::PtFlagStuff,
 ) -> ndspy_sys::PtDspyError {
-    if (image_handle_ptr == ptr::null_mut()) || (output_filename == ptr::null_mut()) {
+    if (image_handle_ptr.is_null()) || (output_filename.is_null()) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
     /*
@@ -185,7 +183,7 @@ pub extern "C" fn DspyImageOpen(
         .for_each(|p| eprintln!("{}", unsafe { CStr::from_ptr(p.name) }.to_str().unwrap()));
     */
 
-    if output_filename != std::ptr::null() {
+    if !output_filename.is_null() {
         let image = Box::new(ImageData {
             data: vec![0.0f32; (width * height * format_count) as _],
             offset: 0,
@@ -207,19 +205,15 @@ pub extern "C" fn DspyImageOpen(
             albedo_index,
             normal_index,
 
-            renderer: match get_parameter::<*const std::os::raw::c_char>(
-                "Software", b's', 1, &parameter,
-            ) {
-                Some(c_str_ptr) => Some(
+            renderer: get_parameter::<*const std::os::raw::c_char>("Software", b's', 1, &parameter)
+                .map(|c_str_ptr| {
                     unsafe { CStr::from_ptr(c_str_ptr) }
                         .to_string_lossy()
                         .into_owned()
                         .as_str()
                         .try_into()
-                        .unwrap(),
-                ),
-                None => None,
-            },
+                        .unwrap()
+                }),
 
             //clipping:
             /*
@@ -230,7 +224,6 @@ pub extern "C" fn DspyImageOpen(
                 Some(b) => b != 0,
                 None => true,
             },
-
             compression: match get_parameter::<*const std::os::raw::c_char>(
                 "compression",
                 b's',
@@ -278,10 +271,8 @@ pub extern "C" fn DspyImageOpen(
                 },
             },
 
-            tile_size: match get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter) {
-                None => None,
-                Some(t) => Some(Vec2::from((t[0] as _, t[1] as _))),
-            },
+            tile_size: get_parameter::<[u32; 2]>("tile_size", b'i', 2, &parameter)
+                .map(|t| Vec2::from((t[0] as _, t[1] as _))),
 
             file_name: unsafe {
                 CStr::from_ptr(output_filename)
@@ -325,7 +316,7 @@ pub extern "C" fn DspyImageQuery(
     data_len: c_int,
     mut data: *const c_void,
 ) -> ndspy_sys::PtDspyError {
-    if (data == ptr::null_mut()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
+    if (data.is_null()) && (query_type != ndspy_sys::PtDspyQueryType_PkStopQuery) {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
@@ -335,7 +326,7 @@ pub extern "C" fn DspyImageQuery(
     match query_type {
         ndspy_sys::PtDspyQueryType_PkSizeQuery => {
             let size_info = Box::new({
-                if image_handle == ptr::null_mut() {
+                if image_handle.is_null() {
                     ndspy_sys::PtDspySizeInfo {
                         width: 1920,
                         height: 1080,
@@ -388,7 +379,7 @@ pub extern "C" fn DspyImageData(
     _entry_size: c_int,
     data: *const f32,
 ) -> ndspy_sys::PtDspyError {
-    if image_handle == ptr::null_mut() {
+    if image_handle.is_null() {
         return ndspy_sys::PtDspyError_PkDspyErrorBadParams;
     }
 
@@ -442,13 +433,13 @@ fn add_field_of_views(layer_attributes: &mut LayerAttributes) {
     }
 }
 
-fn _debug_exr(file_name: &str, data: &Vec<f32>, dimensions: (usize, usize)) {
+fn _debug_exr(file_name: &str, data: &[f32], dimensions: (usize, usize)) {
     eprintln!("[r-display] writing {}", file_name);
 
     let sample = |position: Vec2<usize>| {
         let index = 3 * (position.x() + position.y() * dimensions.0);
 
-        Pixel::rgb(data[index + 0], data[index + 1], data[index + 2])
+        Pixel::rgb(data[index], data[index + 1], data[index + 2])
     };
 
     let image_info = ImageInfo::rgb(dimensions, SampleType::F32);
@@ -463,7 +454,7 @@ fn _debug_exr(file_name: &str, data: &Vec<f32>, dimensions: (usize, usize)) {
         .unwrap();
 }
 
-fn write_exr(image: &Box<ImageData>) {
+fn write_exr(image: &ImageData) {
     // -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     if let (Some(rgb_index), Some(alpha_index)) = (image.rgb_index, image.alpha_index) {
         println!("[r-display] writing EXR ...");
@@ -472,7 +463,7 @@ fn write_exr(image: &Box<ImageData>) {
             let index = image.num_channels * (position.x() + position.y() * image.width);
 
             Pixel::rgba(
-                image.data[index + rgb_index + 0],
+                image.data[index + rgb_index],
                 image.data[index + rgb_index + 1],
                 image.data[index + rgb_index + 2],
                 image.data[index + alpha_index],
@@ -547,7 +538,7 @@ pub extern "C" fn DspyImageClose(
                     .par_chunks(image.num_channels)
                     .flat_map(|chunk| {
                         vec![
-                            chunk[rgb_index + 0],
+                            chunk[rgb_index],
                             chunk[rgb_index + 1],
                             chunk[rgb_index + 2],
                         ]
@@ -565,11 +556,7 @@ pub extern "C" fn DspyImageClose(
                 .data
                 .par_chunks(image.num_channels)
                 .flat_map(|chunk| {
-                    vec![
-                        chunk[rgb_index + 0],
-                        chunk[rgb_index + 1],
-                        chunk[rgb_index + 2],
-                    ]
+                    vec![chunk[rgb_index], chunk[rgb_index + 1], chunk[rgb_index + 2]]
                 })
                 .collect();
 
@@ -579,7 +566,7 @@ pub extern "C" fn DspyImageClose(
                     .par_chunks(image.num_channels)
                     .flat_map(|chunk| {
                         vec![
-                            chunk[albedo_index + 0],
+                            chunk[albedo_index],
                             chunk[albedo_index + 1],
                             chunk[albedo_index + 2],
                         ]
@@ -593,7 +580,7 @@ pub extern "C" fn DspyImageClose(
                         .par_chunks(image.num_channels)
                         .flat_map(|chunk| {
                             vec![
-                                chunk[normal_index + 0],
+                                chunk[normal_index],
                                 chunk[normal_index + 1],
                                 chunk[normal_index + 2],
                             ]

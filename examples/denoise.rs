@@ -1,9 +1,6 @@
-use nsi;
 use polyhedron_ops as p_ops;
 
-use std::{env, path::PathBuf};
-
-fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u32) {
+fn nsi_camera(c: &nsi::Context, name: &str, _camera_xform: &[f64; 16], samples: u32) {
     // Setup a camera transform.
     c.create("camera_xform", nsi::NodeType::Transform, &[]);
     c.connect("camera_xform", "", ".root", "objects", &[]);
@@ -36,7 +33,7 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u
         &[
             nsi::integer!("renderatlowpriority", 1),
             nsi::string!("bucketorder", "circle"),
-            nsi::unsigned!("quality.shadingsamples", samples),
+            nsi::integer!("quality.shadingsamples", samples as _),
             nsi::integer!("maximumraydepth.reflection", 6),
         ],
     );
@@ -97,7 +94,7 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u
             nsi::string!("drivername", "r-display"),
             nsi::string!("imagefilename", name),
             nsi::float!("denoise", 1.),
-            nsi::unsigned!("associatealpha", 0),
+            nsi::integer!("associatealpha", 0),
         ],
     );
 
@@ -107,196 +104,137 @@ fn nsi_camera(c: &nsi::Context, name: &str, camera_xform: &[f64; 16], samples: u
 }
 
 fn nsi_environment(c: &nsi::Context) {
-    if let Ok(path) = &env::var("DELIGHT") {
-        // Set up an environment light.
-        c.create("env_xform", nsi::NodeType::Transform, &[]);
-        c.connect("env_xform", "", ".root", "objects", &[]);
+    // Set up an environment light.
+    c.create("env_xform", nsi::NodeType::Transform, &[]);
+    c.connect("env_xform", "", ".root", "objects", &[]);
 
-        c.create("environment", nsi::NodeType::Environment, &[]);
-        c.connect("environment", "", "env_xform", "objects", &[]);
+    c.create("environment", nsi::NodeType::Environment, &[]);
+    c.connect("environment", "", "env_xform", "objects", &[]);
 
-        c.create("env_attrib", nsi::NodeType::Attributes, &[]);
-        c.connect("env_attrib", "", "environment", "geometryattributes", &[]);
+    c.create("env_attrib", nsi::NodeType::Attributes, &[]);
+    c.connect("env_attrib", "", "environment", "geometryattributes", &[]);
 
-        c.set_attribute("env_attrib", &[nsi::integer!("visibility.camera", 0)]);
+    c.set_attribute("env_attrib", &[nsi::integer!("visibility.camera", 0)]);
 
-        c.create("env_shader", nsi::NodeType::Shader, &[]);
-        c.connect("env_shader", "", "env_attrib", "surfaceshader", &[]);
+    c.create("env_shader", nsi::NodeType::Shader, &[]);
+    c.connect("env_shader", "", "env_attrib", "surfaceshader", &[]);
 
-        // Environment light attributes.
-        c.set_attribute(
-            "env_shader",
-            &[
-                nsi::string!(
-                    "shaderfilename",
-                    PathBuf::from(path)
-                        .join("osl")
-                        .join("environmentLight")
-                        .to_string_lossy()
-                        .into_owned()
-                ),
-                nsi::float!("intensity", 1.),
-            ],
-        );
+    // Environment light attributes.
+    c.set_attribute(
+        "env_shader",
+        &[
+            nsi::string!("shaderfilename", "${DELIGHT}/osl/environmentLight"),
+            nsi::float!("intensity", 1.),
+        ],
+    );
 
-        c.set_attribute(
-            "env_shader",
-            &[nsi::string!("image", "assets/wooden_lounge_2k.tdl")],
-        );
-    }
+    c.set_attribute(
+        "env_shader",
+        &[nsi::string!("image", "assets/wooden_lounge_2k.tdl")],
+    );
 }
 
 fn nsi_reflective_ground(c: &nsi::Context, _name: &str) {
-    if let Ok(path) = &env::var("DELIGHT") {
-        // Floor.
-        c.create("ground_xform_0", nsi::NodeType::Transform, &[]);
-        c.connect("ground_xform_0", "", ".root", "objects", &[]);
-        c.set_attribute(
-            "ground_xform_0",
-            &[nsi::double_matrix!(
-                "transformationmatrix",
-                &[1., 0., 0., 0., 0., 0., -1., 0., 0., 1., 0., 0., 0., -1., 0., 1.,]
-            )],
-        );
+    // Floor.
+    c.create("ground_xform_0", nsi::NodeType::Transform, &[]);
+    c.connect("ground_xform_0", "", ".root", "objects", &[]);
+    c.set_attribute(
+        "ground_xform_0",
+        &[nsi::double_matrix!(
+            "transformationmatrix",
+            &[1., 0., 0., 0., 0., 0., -1., 0., 0., 1., 0., 0., 0., -1., 0., 1.,]
+        )],
+    );
 
-        c.create("ground_0", nsi::NodeType::Plane, &[]);
-        c.connect("ground_0", "", "ground_xform_0", "objects", &[]);
+    c.create("ground_0", nsi::NodeType::Plane, &[]);
+    c.connect("ground_0", "", "ground_xform_0", "objects", &[]);
 
-        /*
-        // Ceiling.
-        c.create("ground_xform_1", nsi::NodeType::Transform, &[]);
-        c.connect("ground_xform_1", "", ".root", "objects", &[]);
-        c.set_attribute(
-            "ground_xform_1",
-            &[nsi::double_matrix!(
-                "transformationmatrix",
-                &[1., 0., 0., 0.,
-                  0., 0., -1., 0.,
-                  0., 1., 0., 0.,
-                  0., 1., 0., 1.,]
-            )],
-        );
+    /*
+    // Ceiling.
+    c.create("ground_xform_1", nsi::NodeType::Transform, &[]);
+    c.connect("ground_xform_1", "", ".root", "objects", &[]);
+    c.set_attribute(
+        "ground_xform_1",
+        &[nsi::double_matrix!(
+            "transformationmatrix",
+            &[1., 0., 0., 0.,
+              0., 0., -1., 0.,
+              0., 1., 0., 0.,
+              0., 1., 0., 1.,]
+        )],
+    );
 
-        c.create("ground_1", nsi::NodeType::Plane, &[]);
-        c.connect("ground_1", "", "ground_xform_1", "objects", &[]);*/
+    c.create("ground_1", nsi::NodeType::Plane, &[]);
+    c.connect("ground_1", "", "ground_xform_1", "objects", &[]);*/
 
-        c.create("ground_attrib", nsi::NodeType::Attributes, &[]);
-        c.set_attribute(
-            "ground_attrib",
-            &[nsi::unsigned!("visibility.camera", false as _)],
-        );
-        c.connect("ground_attrib", "", "ground_0", "geometryattributes", &[]);
+    c.create("ground_attrib", nsi::NodeType::Attributes, &[]);
+    c.set_attribute(
+        "ground_attrib",
+        &[nsi::integer!("visibility.camera", false as _)],
+    );
+    c.connect("ground_attrib", "", "ground_0", "geometryattributes", &[]);
 
-        // c.connect("ground_attrib", "", "ground_1", "geometryattributes", &[]);
+    // c.connect("ground_attrib", "", "ground_1", "geometryattributes", &[]);
 
-        // Ground shader.
-        c.create("ground_shader", nsi::NodeType::Shader, &[]);
-        c.connect("ground_shader", "", "ground_attrib", "surfaceshader", &[]);
+    // Ground shader.
+    c.create("ground_shader", nsi::NodeType::Shader, &[]);
+    c.connect("ground_shader", "", "ground_attrib", "surfaceshader", &[]);
 
-        c.set_attribute(
-            "ground_shader",
-            &[
-                nsi::string!(
-                    "shaderfilename",
-                    "osl/dlPrincipled" /*PathBuf::from(path)
-                                       .join("osl")
-                                       .join("dlPrincipled")
-                                       .to_string_lossy()
-                                       .into_owned()*/
-                ),
-                nsi::color!("i_color", &[0.001, 0.001, 0.001]),
-                //nsi::arg!("coating_thickness", &0.1f32),
-                nsi::float!("roughness", 0.2),
-                nsi::float!("specular_level", 1.),
-                nsi::float!("metallic", 1.),
-                nsi::float!("anisotropy", 1.),
-                nsi::color!("anisotropy_direction", &[1., 0., 0.]),
-                nsi::float!("sss_weight", 0.),
-                nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
-                nsi::float!("sss_scale", 0.),
-                nsi::color!("incandescence", &[0., 0., 0.]),
-                nsi::float!("incandescence_intensity", 0.),
-                //nsi::color!("incandescence_multiplier", &[1.0f32, 1.0, 1.0]),
-            ],
-        );
-    }
+    c.set_attribute(
+        "ground_shader",
+        &[
+            nsi::string!("shaderfilename", "${DELIGHT}/osl/dlPrincipled"),
+            nsi::color!("i_color", &[0.001, 0.001, 0.001]),
+            //nsi::arg!("coating_thickness", &0.1f32),
+            nsi::float!("roughness", 0.2),
+            nsi::float!("specular_level", 1.),
+            nsi::float!("metallic", 1.),
+            nsi::float!("anisotropy", 1.),
+            nsi::color!("anisotropy_direction", &[1., 0., 0.]),
+            nsi::float!("sss_weight", 0.),
+            nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
+            nsi::float!("sss_scale", 0.),
+            nsi::color!("incandescence", &[0., 0., 0.]),
+            nsi::float!("incandescence_intensity", 0.),
+            //nsi::color!("incandescence_multiplier", &[1.0f32, 1.0, 1.0]),
+        ],
+    );
 }
 
 fn nsi_material(c: &nsi::Context, name: &str) {
-    if let Ok(path) = &env::var("DELIGHT") {
-        // Particle attributes.
-        let attribute_name = format!("{}_attrib", name);
-        c.create(attribute_name.clone(), nsi::NodeType::Attributes, &[]);
-        c.connect(attribute_name.clone(), "", name, "geometryattributes", &[]);
+    let attribute_name = format!("{}_attrib", name);
+    c.create(attribute_name.clone(), nsi::NodeType::Attributes, &[]);
+    c.connect(attribute_name.clone(), "", name, "geometryattributes", &[]);
 
-        // Metal shader.
-        let shader_name = format!("{}_shader", name);
-        c.create(shader_name.clone(), nsi::NodeType::Shader, &[]);
-        c.connect(
-            shader_name.clone(),
-            "",
-            attribute_name,
-            "surfaceshader",
-            &[],
-        );
+    // Metal shader.
+    let shader_name = format!("{}_shader", name);
+    c.create(shader_name.clone(), nsi::NodeType::Shader, &[]);
+    c.connect(
+        shader_name.clone(),
+        "",
+        attribute_name,
+        "surfaceshader",
+        &[],
+    );
 
-        c.set_attribute(
-            shader_name,
-            &[
-                nsi::string!(
-                    "shaderfilename",
-                    "osl/dlPrincipled" /*PathBuf::from(path)
-                                       .join("osl")
-                                       .join("dlPrincipled")
-                                       .to_string_lossy()
-                                       .into_owned()*/
-                ),
-                nsi::color!("i_color", &[1., 0.6, 0.3]),
-                //nsi::arg!("coating_thickness", 0.1),
-                nsi::float!("roughness", 0.3),
-                nsi::float!("specular_level", 1.0),
-                nsi::float!("metallic", 1.),
-                nsi::float!("anisotropy", 0.),
-                nsi::float!("sss_weight", 0.),
-                nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
-                nsi::float!("sss_scale", 0.),
-                nsi::color!("incandescence", &[0., 0., 0.]),
-                nsi::float!("incandescence_intensity", 0.),
-                //nsi::color!("incandescence_multiplier", &[1., 1., 1.]),
-            ],
-        );
-
-        /*
-        c.set_attribute(
-            shader_name,
-            &[
-                nsi::string!(
-                    "shaderfilename",
-                    PathBuf::from(path)
-                        .join("osl")
-                        .join("dlStandard")
-                        .to_string_lossy()
-                        .into_owned()
-                ),
-                nsi::float!("base", 0.3),
-                nsi::color!("base_color", &[1., 0.6, 0.3]),
-                //nsi::arg!("coating_thickness", 0.1),
-                //nsi::float!("roughness", 0.),
-                nsi::float!("specular", 0.),
-                nsi::float!("sheen", 1.),
-                nsi::float!("sheen_roughness", 0.8),
-                //nsi::color!("sheen_color", &[1., 0.6, 0.3]),
-                //nsi::float!("metallic", 1.),
-                //nsi::float!("anisotropy", 0.),
-                //nsi::float!("sss_weight", 0.),
-                //nsi::color!("sss_color", &[0.5f32, 0.5, 0.5]),
-                //nsi::float!("sss_scale", 0.0f32),
-                //nsi::color!("incandescence", &[0.0f32, 0.0, 0.0]),
-                //nsi::float!("incandescence_intensity", 0.0f32),
-                //nsi::color!("incandescence_multiplier", &[1.0f32, 1.0, 1.0]),
-            ],
-        );*/
-    }
+    c.set_attribute(
+        shader_name,
+        &[
+            nsi::string!("shaderfilename", "${DELIGHT}/osl/dlPrincipled"),
+            nsi::color!("i_color", &[1., 0.6, 0.3]),
+            //nsi::arg!("coating_thickness", 0.1),
+            nsi::float!("roughness", 0.3),
+            nsi::float!("specular_level", 1.0),
+            nsi::float!("metallic", 1.),
+            nsi::float!("anisotropy", 0.),
+            nsi::float!("sss_weight", 0.),
+            nsi::color!("sss_color", &[0.5, 0.5, 0.5]),
+            nsi::float!("sss_scale", 0.),
+            nsi::color!("incandescence", &[0., 0., 0.]),
+            nsi::float!("incandescence_intensity", 0.),
+            //nsi::color!("incandescence_multiplier", &[1., 1., 1.]),
+        ],
+    );
 }
 
 pub fn nsi_render(
@@ -308,12 +246,9 @@ pub fn nsi_render(
 ) {
     let ctx = {
         if cloud_render {
-            nsi::Context::new(&[
-                nsi::integer!("cloud", 1),
-                nsi::string!("software", "HOUDINI"),
-            ])
+            nsi::Context::new(&[nsi::integer!("cloud", 1)])
         } else {
-            nsi::Context::new(&[])
+            nsi::Context::new(&[nsi::string!("streamfilename", "stdout")])
         }
     }
     .expect("Could not create NSI rendering context.");
@@ -322,7 +257,7 @@ pub fn nsi_render(
 
     nsi_environment(&ctx);
 
-    let name = polyhedron.to_nsi(&ctx);
+    let name = polyhedron.to_nsi(&ctx, None, None, None, None);
 
     nsi_material(&ctx, &name);
 
@@ -335,14 +270,14 @@ pub fn nsi_render(
 
 fn main() {
     let mut polyhedron = p_ops::Polyhedron::tetrahedron();
-    polyhedron.meta(None, None, None, false, true);
+    polyhedron.meta(None, None, None, None, true);
     polyhedron.normalize();
     polyhedron.gyro(Some(1. / 3.), Some(0.1), true);
     polyhedron.normalize();
-    polyhedron.kis(Some(-0.2), None, true, true);
+    polyhedron.kis(Some(-0.2), None, Some(true), true);
     polyhedron.normalize();
 
-    println!("1");
+    //println!("1");
     nsi_render(&polyhedron, &[0.0f64; 16], "test_0001samples.exr", 1, false);
     /*println!("256");
     nsi_render(

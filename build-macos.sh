@@ -6,16 +6,14 @@ if [[ -z "${OIDN_DIR}" ]]; then
 fi
 install_name_tool -id "@loader_path/libOpenImageDenoise.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
 install_name_tool -id "@loader_path/libtbb.dylib" $OIDN_DIR/lib/libtbb.dylib &&
-install_name_tool -id "@loader_path/libtbbmalloc.dylib" $OIDN_DIR/lib/libtbbmalloc.dylib &&
-install_name_tool -change "@rpath/libtbb.dylib" "@loader_path/libtbb.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
-install_name_tool -change "@rpath/libtbbmalloc.dylib" "@loader_path/libtbbmalloc.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
-if [[ "$BUILD_TYPE" == "release" ]]
-then cargo build --release
-else cargo build
+install_name_tool -change "@rpath/libtbb.12.dylib" "@loader_path/libtbb.dylib" $OIDN_DIR/lib/libOpenImageDenoise.dylib &&
+if [[ "$BUILD_TYPE" == "release" ]]; then
+    cargo build --release
+else
+    cargo build
 fi &&
 mkdir -p target/$BUILD_TYPE/display &&
 cp $OIDN_DIR/lib/libOpenImageDenoise.dylib target/$BUILD_TYPE/display/ &&
-cp $OIDN_DIR/lib/libtbbmalloc.dylib target/$BUILD_TYPE/display/ &&
 cp $OIDN_DIR/lib/libtbb.dylib target/$BUILD_TYPE/display/ &&
 mv target/$BUILD_TYPE/libr_display.dylib target/$BUILD_TYPE/display/r-display.dpy &&
 echo &&
