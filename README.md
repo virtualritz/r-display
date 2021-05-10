@@ -19,7 +19,7 @@ Unpack this somewhere. We refer to this below as the *OIDN location*.
 Export the OIDN location for the build to find the headers & libraries.
 For example:
 ```shell
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.linux/
+export OIDN_DIR=$HOME/Downloads/oidn-1.3.0.x86_64.linux/
 ```
 
 Build the display driver:
@@ -32,7 +32,7 @@ Build the display driver:
 Export the OIDN location for the build to find the headers & libraries.
 For example:
 ```shell
-export OIDN_DIR=$HOME/Downloads/oidn-1.2.4.x86_64.macos/
+export OIDN_DIR=$HOME/Downloads/oidn-1.3.0.x86_64.macos/
 ```
 
 Build the display driver:
@@ -49,7 +49,7 @@ somewhere.
 Export the OIDN location for the build to find the headers & libraries.
 For example (using PowerShell):
 ```powershell
-set OIDN_DIR='C:\Downloads\oidn-1.2.4.x64.vc14.windows\oidn-1.2.4.x64.vc14.windows'
+set OIDN_DIR='C:\Downloads\oidn-1.3.0.x64.vc14.windows\oidn-1.3.0.x64.vc14.windows'
 ```
 Set the he LLVM installation directory. For example:
 ```powershell
@@ -91,7 +91,7 @@ Open PowerShell and follow the instructions.
     ```
 6. Set the OIDN location you choose [above](##Building). For example:
     ```powershell
-    $Env:OIDN_DIR = "C:\Downloads\oidn-1.2.4.x64.vc14.windows\oidn-1.2.4.x64.vc14.windows"
+    $Env:OIDN_DIR = "C:\Downloads\oidn-1.3.0.x64.vc14.windows\oidn-1.3.0.x64.vc14.windows"
     ```
 7. Create some folder to host the repository during build and change to
     there. Note that you can delete this later.
@@ -155,9 +155,8 @@ original pixels will be discarded and replaced with denoised ones.
 If you want support for keeping the original image in a separate layer
 of the EXR open an issue and I see what can be done.
 
-~~If you want to use **albedo** and **normal** (requires the former)
-layers to improve the denoising you need to add support for outputting
-`albedo` from your OSL shaders.~~
+You can use **albedo** and **normal** (requires the former) layers to
+improve the denoising.
 
 ### Compression
 
