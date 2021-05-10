@@ -99,7 +99,7 @@ Open PowerShell and follow the instructions.
     md -Path "C:\MyProjects"
     cd "C:\MyProjects"
     ```
-8. Clone the r-display repository cand hop into it:
+8. Clone the r-display repository and hop into it:
     ```powershell
     git clone https://github.com/virtualritz/r-display
     cd r-display
@@ -155,17 +155,9 @@ original pixels will be discarded and replaced with denoised ones.
 If you want support for keeping the original image in a separate layer
 of the EXR open an issue and I see what can be done.
 
-If you want to use **albedo** and **normal** (requires the former)
+~~If you want to use **albedo** and **normal** (requires the former)
 layers to improve the denoising you need to add support for outputting
-`albedo` from your OSL shaders.
-
-For example if `albedo` contains the albedo add sth. like this to your
-OSL shader:
-```glsl
-if( raytype("camera") )	{
-    outColor += debug("albedo") * albedo;
-}
-```
+`albedo` from your OSL shaders.~~
 
 ### Compression
 
