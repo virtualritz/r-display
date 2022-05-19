@@ -9,7 +9,7 @@ mileage my vary.
 
 ## Building
 
-You need a copy of Intel® Open Image Denoise (IOID). Grab a package
+You need a copy of Intel® Open Image Denoise (OIDN). Grab a package
 from their
 [download section](https://www.openimagedenoise.org/downloads.html).
 Unpack this somewhere. We refer to this below as the *OIDN location*.
