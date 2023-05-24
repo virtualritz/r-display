@@ -142,7 +142,7 @@ The display driver uses
 to denoise the 1st set of RGB channels. This is **switched on by
 default**.
 
-Use the`denoise` (`float`) parameter to control this.
+Use the `denoise` (`float`) parameter to control this.
 
 Setting this to **zero** switches denoising *off*.
 
@@ -168,7 +168,7 @@ which are set by the `compression` (`string`) parameter:
 -   [x] `rle` (lossless)
 -   [x] `piz` (lossless)
 -   [x] `pxr24` (lossy)
--   [ ] `b44`, `b44a` not yet supported
+-   [ ] `b44`, `b44a` not yet supported (could be added since there is support in the `exr` crate for this now)
 -   [ ] `dwaa`, `dwab` not yet supported
 
 ### Other
